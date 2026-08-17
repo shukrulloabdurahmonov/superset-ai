@@ -1,0 +1,13 @@
+# Fork-local override: publish the backend on the host and skip the
+# webpack dev-server container (the dev image already ships built assets;
+# the node dev server is only needed for frontend hot-reload work and gets
+# OOM-killed on small Docker VMs).
+#
+#   docker compose -f docker-compose-light.yml -f docker-compose-light-host.yml up -d
+services:
+  superset-light:
+    ports:
+      - "8088:8088"
+  superset-node-light:
+    deploy:
+      replicas: 0

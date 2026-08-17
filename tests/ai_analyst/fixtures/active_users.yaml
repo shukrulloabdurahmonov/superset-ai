@@ -1,0 +1,133 @@
+# Regression spec: reproduces the reference "Active Users" dashboard from
+# reference/extracted/. Names are suffixed so it can be imported alongside
+# the original without collisions. Build:
+#   .venv/bin/python build.py specs/active_users.yaml
+
+title: Active Users (codegen)
+slug: dau-codegen
+
+datasets:
+  ds_dau_total_cg:
+    main_dttm_col: period_start
+    catalog: iceberg
+    sql: |
+      SELECT period_start, active_users
+      FROM bronze.active_users_daily_dump
+      WHERE finance_category_l2 = '- Total -'
+    columns:
+      - {name: period_start, type: DATE, is_dttm: true}
+      - {name: active_users, type: BIGINT}
+  ds_dau_l2_cg:
+    main_dttm_col: period_start
+    catalog: iceberg
+    sql: |
+      SELECT period_start, finance_category_l2, active_users
+      FROM bronze.active_users_daily_dump
+      WHERE finance_category_l2 <> '- Total -'
+        AND finance_category_l3 = '- Total -'
+    columns:
+      - {name: period_start, type: DATE, is_dttm: true}
+      - {name: finance_category_l2, type: VARCHAR}
+      - {name: active_users, type: BIGINT}
+  ds_dau_l3_cg:
+    main_dttm_col: period_start
+    catalog: iceberg
+    sql: |
+      SELECT period_start, finance_category_l2, finance_category_l3, active_users
+      FROM bronze.active_users_daily_dump
+      WHERE finance_category_l3 <> '- Total -'
+    columns:
+      - {name: period_start, type: DATE, is_dttm: true}
+      - {name: finance_category_l2, type: VARCHAR}
+      - {name: finance_category_l3, type: VARCHAR}
+      - {name: active_users, type: BIGINT}
+
+charts:
+  total_dau:
+    title: Total DAU
+    type: line
+    dataset: ds_dau_total_cg
+    metric: {column: active_users, aggregate: SUM}
+    time_range: '2025-01-01T00:00:00 : now'
+    time_compare: [1 year ago, 2 years ago]
+    color_scheme: blueToGreen
+    x_axis_time_format: '%d.%m.%Y'
+    x_axis_label_rotation: 45
+    row_limit: 1000
+  total_dau_bn:
+    title: Total DAU BN
+    type: big_number
+    dataset: ds_dau_total_cg
+    metric: {column: active_users, aggregate: SUM}
+    time_range: Last month
+    compare_lag: 1
+    compare_suffix: from yesterday
+  heatmap:
+    title: Total DAU Calendar Heatmap 2025
+    type: cal_heatmap
+    dataset: ds_dau_total_cg
+    metric: {column: active_users, aggregate: SUM, label: Active Users}
+    time_range: '2025-01-01T00:00:00 : 2026-01-01T00:00:00'
+  dau_by_l2:
+    title: DAU by L2
+    type: line
+    dataset: ds_dau_l2_cg
+    metric: {column: active_users, aggregate: SUM}
+    groupby: [finance_category_l2]
+    filters:
+      - {column: finance_category_l2, op: NOT IN, values: [Unknown]}
+  dau_by_l2_pie:
+    title: DAU by L2 Pie Chart
+    type: pie
+    dataset: ds_dau_l2_cg
+    metric: {column: active_users, aggregate: AVG, label: Active Users (Avg. Last Month)}
+    groupby: finance_category_l2
+    time_range: previous calendar month
+    filters:
+      - {column: finance_category_l2, op: NOT IN, values: [Unknown]}
+  treemap_dau:
+    title: Tree Map DAU
+    type: treemap
+    dataset: ds_dau_l3_cg
+    metric: {column: active_users, aggregate: SUM, label: Active Users}
+    groupby: [finance_category_l2, finance_category_l3]
+    time_range: previous calendar month
+    filters:
+      - {column: finance_category_l2, op: NOT IN, values: [Unknown]}
+  pivot_dau:
+    title: Pivot DAU
+    type: pivot
+    dataset: ds_dau_l3_cg
+    metric: {column: active_users, aggregate: SUM, label: Active Users}
+    rows: [finance_category_l2, finance_category_l3]
+    columns: [period_start]
+    time_range: previous calendar quarter
+    filters:
+      - {column: finance_category_l2, op: NOT IN, values: [Unknown]}
+
+layout:
+  tabs:
+    General:
+      - [[total_dau_bn, 4, 45], [heatmap, 8, 43]]
+      - divider
+      - [[total_dau, 12, 92]]
+      - [[dau_by_l2, 12, 71]]
+    Pivot:
+      - [[pivot_dau, 12, 139]]
+    Division:
+      - [[treemap_dau, 12, 84]]
+  rows:
+    - [[dau_by_l2_pie, 12, 69]]
+
+filters:
+  - name: L2
+    dataset: ds_dau_l3_cg
+    column: finance_category_l2
+    tab: Pivot
+    charts: [pivot_dau]
+  - name: L3
+    dataset: ds_dau_l3_cg
+    column: finance_category_l3
+    cascade: L2
+    tab: Pivot
+    charts: [pivot_dau]

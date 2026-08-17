@@ -1,0 +1,15 @@
+database_name: Trino
+sqlalchemy_uri: trino://superset:XXXXXXXXXX@olam.data.tteampro.tech:443/iceberg
+cache_timeout: null
+expose_in_sqllab: true
+allow_run_async: false
+allow_ctas: false
+allow_cvas: false
+allow_dml: false
+allow_file_upload: false
+extra:
+  allows_virtual_table_explore: true
+impersonate_user: true
+configuration_method: sqlalchemy_form
+uuid: 95c6a73b-0cce-44f3-a132-1a70736e496e
+version: 1.0.0

@@ -1,0 +1,1170 @@
+# Unified competitor dashboard over silver.parser_* tables.
+# One competitor per vertical so far: avtoelon (auto), hh (jobs), domtut (real estate).
+# ds_comp_overview's UNION is the seam where our own metrics plug in later.
+# NOTE: in parser_auto, city IS populated but region/district are 100% null —
+# the region charts render "No data" until the parser starts capturing them.
+# Build: .venv/bin/python build.py specs/competitors.yaml
+
+title: Competitors
+slug: competitors
+
+datasets:
+  ds_comp_overview:
+    main_dttm_col: created_at
+    sql: |
+      SELECT 'Auto' AS vertical, source, listing_sk, lifecycle_status, created_at, removed_at
+      FROM silver.parser_auto
+      UNION ALL
+      SELECT 'Jobs', source, listing_sk, lifecycle_status, created_at, removed_at
+      FROM silver.parser_jobs
+      UNION ALL
+      SELECT 'Real estate', source, listing_sk, lifecycle_status, created_at, removed_at
+      FROM silver.parser_real_estate
+    columns:
+      - {name: vertical, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: listing_sk, type: VARCHAR}
+      - {name: lifecycle_status, type: VARCHAR}
+      - {name: created_at, type: TIMESTAMP, is_dttm: true}
+      - {name: removed_at, type: TIMESTAMP, is_dttm: true}
+  ds_comp_auto:
+    main_dttm_col: created_at
+    sql: |
+      SELECT listing_sk, source, brand, price_amount, price_currency, fuel_type,
+             body_type, transmission, drive_type, color, production_year,
+             mileage_km, engine_volume_l,
+             cardinality(media) AS photos_cnt,
+             CASE WHEN price_negotiable THEN 1 ELSE 0 END AS is_negotiable,
+             CASE WHEN phone IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
+             date_diff('day', created_at, removed_at) AS days_on_market,
+             region, city, district,
+             lifecycle_status, created_at, removed_at, _olam_ingested_at
+      FROM silver.parser_auto
+    columns:
+      - {name: listing_sk, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: brand, type: VARCHAR}
+      - {name: price_amount, type: DECIMAL}
+      - {name: price_currency, type: VARCHAR}
+      - {name: fuel_type, type: VARCHAR}
+      - {name: body_type, type: VARCHAR}
+      - {name: transmission, type: VARCHAR}
+      - {name: drive_type, type: VARCHAR}
+      - {name: color, type: VARCHAR}
+      - {name: production_year, type: INTEGER}
+      - {name: mileage_km, type: BIGINT}
+      - {name: engine_volume_l, type: DOUBLE}
+      - {name: photos_cnt, type: INTEGER}
+      - {name: is_negotiable, type: BIGINT}
+      - {name: has_phone, type: BIGINT}
+      - {name: days_on_market, type: BIGINT}
+      - {name: region, type: VARCHAR}
+      - {name: city, type: VARCHAR}
+      - {name: district, type: VARCHAR}
+      - {name: lifecycle_status, type: VARCHAR}
+      - {name: created_at, type: TIMESTAMP, is_dttm: true}
+      - {name: removed_at, type: TIMESTAMP, is_dttm: true}
+      - {name: _olam_ingested_at, type: TIMESTAMP, is_dttm: true}
+  ds_comp_auto_options:
+    main_dttm_col: created_at
+    sql: |
+      SELECT listing_sk, source, opt AS car_option, created_at
+      FROM silver.parser_auto
+      CROSS JOIN UNNEST(car_options) AS t(opt)
+    columns:
+      - {name: listing_sk, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: car_option, type: VARCHAR}
+      - {name: created_at, type: TIMESTAMP, is_dttm: true}
+  ds_comp_jobs:
+    main_dttm_col: created_at
+    sql: |
+      SELECT listing_sk, source, company_name, employment_form, salary_currency,
+             salary_from, salary_to,
+             COALESCE((salary_from + salary_to) / 2, salary_from, salary_to) AS salary_mid,
+             CASE WHEN salary_from IS NOT NULL OR salary_to IS NOT NULL THEN 1 ELSE 0 END AS has_salary,
+             CASE WHEN company_trusted THEN 1 ELSE 0 END AS is_trusted,
+             min_experience_years, region, city, site_active,
+             date_diff('day', published_at, removed_at) AS days_open,
+             created_at, published_at, removed_at, _olam_ingested_at
+      FROM silver.parser_jobs
+    columns:
+      - {name: listing_sk, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: company_name, type: VARCHAR}
+      - {name: employment_form, type: VARCHAR}
+      - {name: salary_currency, type: VARCHAR}
+      - {name: salary_from, type: BIGINT}
+      - {name: salary_to, type: BIGINT}
+      - {name: salary_mid, type: BIGINT}
+      - {name: has_salary, type: BIGINT}
+      - {name: is_trusted, type: BIGINT}
+      - {name: min_experience_years, type: INTEGER}
+      - {name: region, type: VARCHAR}
+      - {name: city, type: VARCHAR}
+      - {name: site_active, type: BOOLEAN}
+      - {name: days_open, type: BIGINT}
+      - {name: created_at, type: TIMESTAMP, is_dttm: true}
+      - {name: published_at, type: TIMESTAMP, is_dttm: true}
+      - {name: removed_at, type: TIMESTAMP, is_dttm: true}
+      - {name: _olam_ingested_at, type: TIMESTAMP, is_dttm: true}
+  ds_comp_jobs_skills:
+    main_dttm_col: created_at
+    sql: |
+      SELECT listing_sk, source, skill, created_at
+      FROM silver.parser_jobs
+      CROSS JOIN UNNEST(key_skills) AS t(skill)
+    columns:
+      - {name: listing_sk, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: skill, type: VARCHAR}
+      - {name: created_at, type: TIMESTAMP, is_dttm: true}
+  ds_comp_re:
+    main_dttm_col: created_at
+    sql: |
+      SELECT listing_sk, source, price_amount, price_currency, housing_class,
+             house_type, num_floors, parking, finishing, heating, walls,
+             ceiling_height_m, region, city,
+             cardinality(media) AS photos_cnt,
+             CASE WHEN phone IS NOT NULL THEN 1 ELSE 0 END AS has_phone,
+             CASE WHEN email IS NOT NULL THEN 1 ELSE 0 END AS has_email,
+             date_diff('day', created_at, removed_at) AS days_on_market,
+             completion_date, created_at, removed_at, _olam_ingested_at
+      FROM silver.parser_real_estate
+    columns:
+      - {name: listing_sk, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: price_amount, type: DECIMAL}
+      - {name: price_currency, type: VARCHAR}
+      - {name: housing_class, type: VARCHAR}
+      - {name: house_type, type: VARCHAR}
+      - {name: num_floors, type: INTEGER}
+      - {name: parking, type: VARCHAR}
+      - {name: finishing, type: VARCHAR}
+      - {name: heating, type: VARCHAR}
+      - {name: walls, type: VARCHAR}
+      - {name: ceiling_height_m, type: DOUBLE}
+      - {name: region, type: VARCHAR}
+      - {name: city, type: VARCHAR}
+      - {name: photos_cnt, type: INTEGER}
+      - {name: has_phone, type: BIGINT}
+      - {name: has_email, type: BIGINT}
+      - {name: days_on_market, type: BIGINT}
+      - {name: completion_date, type: DATE, is_dttm: true}
+      - {name: created_at, type: TIMESTAMP, is_dttm: true}
+      - {name: removed_at, type: TIMESTAMP, is_dttm: true}
+      - {name: _olam_ingested_at, type: TIMESTAMP, is_dttm: true}
+  ds_comp_re_plans:
+    main_dttm_col: _olam_ingested_at
+    sql: |
+      SELECT plan_sk, listing_sk, source, num_rooms, is_studio,
+             CASE WHEN is_studio THEN 1 ELSE 0 END AS is_studio_int,
+             TRY_CAST(area_m2 AS double) AS area_m2, _olam_ingested_at
+      FROM silver.parser_real_estate_plans
+    columns:
+      - {name: plan_sk, type: VARCHAR}
+      - {name: listing_sk, type: VARCHAR}
+      - {name: source, type: VARCHAR}
+      - {name: num_rooms, type: VARCHAR}
+      - {name: is_studio, type: BOOLEAN}
+      - {name: is_studio_int, type: BIGINT}
+      - {name: area_m2, type: DOUBLE}
+      - {name: _olam_ingested_at, type: TIMESTAMP, is_dttm: true}
+
+markdown:
+  auto_hdr: |
+    ### 🚗 Avtoelon.uz — Cars
+    Competitor auto classifieds, parsed daily.
+  jobs_hdr: |
+    ### 💼 HH.uz — Vacancies
+    Competitor job board, parsed daily.
+  re_hdr: |
+    ### 🏢 Domtut.uz — New Builds
+    Competitor real-estate portal, parsed daily.
+  auto_sec_lifecycle: '#### Lifecycle & Volume'
+  auto_sec_prices: '#### Prices'
+  auto_sec_market: '#### Market Structure'
+  auto_sec_specs: '#### Vehicle Specs'
+  auto_sec_matrix: '#### Attribute Mix by Brand'
+  auto_sec_geo: '#### Geography'
+  auto_sec_signals: '#### Seller Signals'
+  auto_sec_awaiting: |
+    #### ⏳ Awaiting Parser Data
+    Days-on-market needs regular parser runs to observe removals, and **region/district** aren't captured by the parser yet — these charts populate automatically once the data arrives.
+  jobs_sec_lifecycle: '#### Lifecycle & Volume'
+  jobs_sec_salary: '#### Salaries'
+  jobs_sec_companies: '#### Employers'
+  jobs_sec_reqs: '#### Requirements & Skills'
+  jobs_sec_awaiting: |
+    #### ⏳ Awaiting Parser Data
+    Vacancy closures need regular parser runs to observe, and location fields may not be captured yet — these charts populate automatically once the data arrives.
+  re_sec_lifecycle: '#### Lifecycle & Supply Pipeline'
+  re_sec_prices: '#### Prices'
+  re_sec_building: '#### Building Specs'
+  re_sec_plans: '#### Floor Plans'
+  re_sec_signals: '#### Seller Signals'
+  re_sec_awaiting: |
+    #### ⏳ Awaiting Parser Data
+    Removals need regular parser runs to observe, and location fields may not be captured yet — these charts populate automatically once the data arrives.
+
+charts:
+  # ================= Overview
+  ov_total_auto:
+    title: Auto Listings
+    type: big_number_total
+    dataset: ds_comp_overview
+    metric: {column: listing_sk, aggregate: COUNT, label: Auto Listings}
+    subtitle: avtoelon.uz
+    description: Total car listings captured from avtoelon.uz to date.
+    filters:
+      - {column: vertical, op: IN, values: [Auto]}
+  ov_total_jobs:
+    title: Job Vacancies
+    type: big_number_total
+    dataset: ds_comp_overview
+    metric: {column: listing_sk, aggregate: COUNT, label: Job Vacancies}
+    subtitle: hh.uz
+    description: Total vacancies captured from hh.uz to date.
+    filters:
+      - {column: vertical, op: IN, values: [Jobs]}
+  ov_total_re:
+    title: Real Estate Listings
+    type: big_number_total
+    dataset: ds_comp_overview
+    metric: {column: listing_sk, aggregate: COUNT, label: Real Estate Listings}
+    subtitle: domtut.uz
+    description: Total real-estate listings captured from domtut.uz to date.
+    filters:
+      - {column: vertical, op: IN, values: [Real estate]}
+  ov_new_daily:
+    title: New Listings Parsed per Day
+    type: area
+    dataset: ds_comp_overview
+    metric: {column: listing_sk, aggregate: COUNT, label: New Listings}
+    groupby: [vertical]
+    description: Daily inflow of newly discovered listings, stacked by vertical — shows parser coverage and market activity.
+  ov_sunburst:
+    title: Listings Breakdown
+    type: sunburst
+    dataset: ds_comp_overview
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    groupby: [vertical, source, lifecycle_status]
+    description: How the tracked inventory splits by vertical, competitor and listing status.
+  ov_pivot:
+    title: Listings by Vertical / Source / Status
+    type: pivot
+    dataset: ds_comp_overview
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    rows: [vertical, source]
+    columns: [lifecycle_status]
+    description: Exact listing counts per competitor and lifecycle status.
+
+  # ================= Auto: parse stats
+  auto_total:
+    title: Total Listings
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: All car listings ever captured from avtoelon.uz.
+  auto_active:
+    title: Active Now
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: Active}
+    description: Listings currently live on the site (not yet removed).
+    filters:
+      - {column: removed_at, op: IS NULL}
+  auto_removed:
+    title: Removed
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: Removed}
+    description: Listings that disappeared from the site — sold, expired or deleted.
+    filters:
+      - {column: removed_at, op: IS NOT NULL}
+  auto_last_parsed:
+    title: Last Parsed
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {column: _olam_ingested_at, aggregate: MAX, label: Last Parsed}
+    timestamp: true
+    description: When the parser last delivered fresh avtoelon data.
+
+  # ================= Auto: lifecycle
+  auto_new_daily:
+    title: New Listings per Day
+    type: line
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: New Listings}
+    description: Daily count of newly discovered car listings — supply-side market activity.
+  auto_removed_daily:
+    title: Removed per Day
+    type: line
+    dataset: ds_comp_auto
+    x_axis: removed_at
+    time_column: removed_at
+    metric: {column: listing_sk, aggregate: COUNT, label: Removed}
+    description: Daily count of listings leaving the site — a proxy for sales velocity.
+  auto_dom_avg:
+    title: Avg Days on Market
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {column: days_on_market, aggregate: AVG, label: Avg Days on Market}
+    description: Average lifetime of a removed listing — how fast cars sell.
+    filters:
+      - {column: days_on_market, op: IS NOT NULL}
+  auto_dom_hist:
+    title: Days-on-Market Distribution
+    type: histogram
+    dataset: ds_comp_auto
+    column: days_on_market
+    bins: 20
+    description: How long listings survive before removal — fast movers vs stale stock.
+    filters:
+      - {column: days_on_market, op: IS NOT NULL}
+
+  # ================= Auto: prices
+  auto_median_price:
+    title: Median Price (USD)
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {sql: 'APPROX_PERCENTILE(price_amount, 0.5)', label: Median Price (USD)}
+    description: The typical asking price — more robust than the mean against luxury outliers.
+    filters:
+      - {column: price_currency, op: IN, values: [USD]}
+  auto_price_hist:
+    title: Price Distribution (USD, up to $100k)
+    type: histogram
+    dataset: ds_comp_auto
+    column: price_amount
+    bins: 60
+    description: Where the market's asking prices concentrate (rare $100k+ listings excluded to keep the shape readable).
+    filters:
+      - {column: price_currency, op: IN, values: [USD]}
+      - {column: price_amount, op: IS NOT NULL}
+      - {column: price_amount, op: '<=', value: 100000}
+  auto_depreciation:
+    title: Avg Price by Production Year
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: production_year
+    sort_axis: true
+    metric: {column: price_amount, aggregate: AVG, label: Avg Price (USD)}
+    row_limit: 60
+    show_value: false
+    description: The depreciation curve — how asking price falls with vehicle age.
+    filters:
+      - {column: price_currency, op: IN, values: [USD]}
+      - {column: production_year, op: IS NOT NULL}
+  auto_bubble:
+    title: Brand Map — Volume vs Price
+    type: bubble
+    dataset: ds_comp_auto
+    entity: brand
+    x: {column: price_amount, aggregate: AVG, label: Avg Price (USD)}
+    y: {column: listing_sk, aggregate: COUNT, label: Listings}
+    size: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 30
+    x_axis_title: Avg Price (USD)
+    y_axis_title: Listings
+    description: Brand positioning by inventory volume against average asking price.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+      - {column: price_currency, op: IN, values: [USD]}
+  auto_bubble_mileage:
+    title: Brand Map — Mileage vs Price
+    type: bubble
+    dataset: ds_comp_auto
+    entity: brand
+    x: {column: mileage_km, aggregate: AVG, label: Avg Mileage (km)}
+    y: {column: price_amount, aggregate: AVG, label: Avg Price (USD)}
+    size: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 30
+    x_axis_title: Avg Mileage (km)
+    y_axis_title: Avg Price (USD)
+    description: Value positioning — brands with low mileage and high price sit top-left, worn cheap stock bottom-right.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+      - {column: price_currency, op: IN, values: [USD]}
+      - {column: mileage_km, op: IS NOT NULL}
+
+  # ================= Auto: market structure
+  auto_brands:
+    title: Top Brands by Listings
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: brand
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Which brands dominate the competitor's inventory.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+  auto_brand_stats:
+    title: Brand Stats
+    type: pivot
+    dataset: ds_comp_auto
+    metrics:
+      - {column: listing_sk, aggregate: COUNT, label: Listings}
+      - {column: price_amount, aggregate: AVG, label: Avg Price (USD)}
+      - {sql: 'APPROX_PERCENTILE(price_amount, 0.5)', label: Median Price (USD)}
+      - {column: mileage_km, aggregate: AVG, label: Avg Mileage (km)}
+    rows: [brand]
+    description: Per-brand reference table — volume, average and median price, average mileage.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+      - {column: price_currency, op: IN, values: [USD]}
+
+  # ================= Auto: specs
+  auto_year_bar:
+    title: Listings by Production Year
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: production_year
+    sort_axis: true
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 60
+    show_value: false
+    description: Age structure of the inventory — new cars vs old stock.
+    filters:
+      - {column: production_year, op: IS NOT NULL}
+  auto_mileage_hist:
+    title: Mileage Distribution (km)
+    type: histogram
+    dataset: ds_comp_auto
+    column: mileage_km
+    bins: 25
+    description: How worn the inventory is — mileage concentration across listings.
+    filters:
+      - {column: mileage_km, op: IS NOT NULL}
+  auto_transmission:
+    title: Transmission
+    type: pie
+    donut: true
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    groupby: transmission
+    description: Manual vs automatic split of the inventory.
+    filters:
+      - {column: transmission, op: IS NOT NULL}
+  auto_drive:
+    title: Drive Type
+    type: pie
+    donut: true
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    groupby: drive_type
+    description: Front / rear / all-wheel-drive mix.
+    filters:
+      - {column: drive_type, op: IS NOT NULL}
+  auto_fuel:
+    title: Fuel Type
+    type: pie
+    donut: true
+    dataset: ds_comp_auto
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    groupby: fuel_type
+    description: Petrol / gas / hybrid / EV mix (only ~30% of listings specify fuel).
+    filters:
+      - {column: fuel_type, op: IS NOT NULL}
+  auto_body:
+    title: Body Types
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: body_type
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Sedans vs SUVs vs the rest — demand-side body preferences.
+    filters:
+      - {column: body_type, op: IS NOT NULL}
+  auto_color:
+    title: Colors
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: color
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Most common vehicle colors on offer.
+    filters:
+      - {column: color, op: IS NOT NULL}
+
+  # ================= Auto: attribute matrices
+  auto_heat_brand_fuel:
+    title: Brand × Fuel Type
+    type: heatmap
+    dataset: ds_comp_auto
+    x_axis: brand
+    groupby: fuel_type
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: Which fuel types each brand's inventory concentrates in.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+      - {column: fuel_type, op: IS NOT NULL}
+  auto_heat_brand_transmission:
+    title: Brand × Transmission
+    type: heatmap
+    dataset: ds_comp_auto
+    x_axis: brand
+    groupby: transmission
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: Transmission mix per brand.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+      - {column: transmission, op: IS NOT NULL}
+  auto_heat_brand_body:
+    title: Brand × Body Type
+    type: heatmap
+    dataset: ds_comp_auto
+    x_axis: brand
+    groupby: body_type
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: Body-type mix per brand — who sells SUVs, who sells sedans.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+      - {column: body_type, op: IS NOT NULL}
+
+  # ================= Auto: geography (empty until parser captures location)
+  auto_region_bar:
+    title: Listings by Region
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: region
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 20
+    description: Regional distribution of the competitor's inventory.
+    filters:
+      - {column: region, op: IS NOT NULL}
+  auto_city_bar:
+    title: Top Cities
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: city
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Cities with the most listings.
+    filters:
+      - {column: city, op: IS NOT NULL}
+  auto_price_by_region:
+    title: Avg Price by Region (USD)
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: region
+    metric: {column: price_amount, aggregate: AVG, label: Avg Price (USD)}
+    row_limit: 20
+    description: Where cars are priced highest — regional price differences.
+    filters:
+      - {column: region, op: IS NOT NULL}
+      - {column: price_currency, op: IN, values: [USD]}
+  auto_phone_by_region:
+    title: Phone Availability by Region
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: region
+    metric: {column: has_phone, aggregate: AVG, label: Share with Phone}
+    y_axis_format: '.0%'
+    show_value: false
+    row_limit: 20
+    description: Share of listings exposing a phone number, by region — contactability of sellers.
+    filters:
+      - {column: region, op: IS NOT NULL}
+  auto_heat_region_brand:
+    title: Region × Brand
+    type: heatmap
+    dataset: ds_comp_auto
+    x_axis: region
+    groupby: brand
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: Which brands dominate in which regions.
+    filters:
+      - {column: region, op: IS NOT NULL}
+      - {column: brand, op: IS NOT NULL}
+
+  # ================= Auto: seller signals
+  auto_negotiable_gauge:
+    title: Negotiable Prices
+    type: gauge
+    dataset: ds_comp_auto
+    metric: {column: is_negotiable, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Share of listings marked as price-negotiable.
+  auto_phone_gauge:
+    title: Listings with Phone
+    type: gauge
+    dataset: ds_comp_auto
+    metric: {column: has_phone, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Share of listings exposing a seller phone number.
+  auto_photos_avg:
+    title: Avg Photos per Listing
+    type: big_number_total
+    dataset: ds_comp_auto
+    metric: {column: photos_cnt, aggregate: AVG, label: Avg Photos}
+    description: Average number of photos per listing — a listing-quality signal.
+  auto_phone_by_brand:
+    title: Phone Availability by Brand
+    type: bar
+    dataset: ds_comp_auto
+    x_axis: brand
+    metric: {column: has_phone, aggregate: AVG, label: Share with Phone}
+    y_axis_format: '.0%'
+    show_value: false
+    row_limit: 15
+    description: Which brands' sellers are most reachable by phone.
+    filters:
+      - {column: brand, op: IS NOT NULL}
+  auto_options_cloud:
+    title: Popular Car Options
+    type: word_cloud
+    dataset: ds_comp_auto_options
+    column: car_option
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 80
+    description: The equipment options sellers mention most often.
+    filters:
+      - {column: car_option, op: IS NOT NULL}
+
+  # ================= Jobs
+  jobs_total:
+    title: Total Vacancies
+    type: big_number_total
+    dataset: ds_comp_jobs
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    description: All vacancies captured from hh.uz.
+  jobs_last_parsed:
+    title: Last Parsed
+    type: big_number_total
+    dataset: ds_comp_jobs
+    metric: {column: _olam_ingested_at, aggregate: MAX, label: Last Parsed}
+    timestamp: true
+    description: When the parser last delivered fresh hh.uz data.
+  jobs_active:
+    title: Active on Site
+    type: big_number_total
+    dataset: ds_comp_jobs
+    metric: {column: listing_sk, aggregate: COUNT, label: Active}
+    description: Vacancies currently marked active on hh.uz.
+    filters:
+      - {column: site_active, op: '==', value: true}
+  jobs_companies_cnt:
+    title: Hiring Companies
+    type: big_number_total
+    dataset: ds_comp_jobs
+    metric: {column: company_name, aggregate: COUNT_DISTINCT, label: Companies}
+    description: Distinct employers with at least one vacancy.
+  jobs_new_daily:
+    title: New Vacancies per Day
+    type: line
+    dataset: ds_comp_jobs
+    metric: {column: listing_sk, aggregate: COUNT, label: New Vacancies}
+    description: Daily inflow of newly discovered vacancies (by parse date).
+  jobs_published_daily:
+    title: Vacancies by Publish Date
+    type: line
+    dataset: ds_comp_jobs
+    x_axis: published_at
+    time_column: published_at
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    description: When the currently tracked vacancies were originally posted — hiring-market tempo.
+  jobs_salary_median:
+    title: Median Salary (UZS)
+    type: big_number_total
+    dataset: ds_comp_jobs
+    metric: {sql: 'APPROX_PERCENTILE(salary_mid, 0.5)', label: Median Salary (UZS)}
+    description: The typical offered salary — robust against a few executive-level outliers.
+    filters:
+      - {column: salary_currency, op: IN, values: [UZS]}
+  jobs_salary_by_exp:
+    title: Avg Salary by Required Experience
+    type: bar
+    dataset: ds_comp_jobs
+    x_axis: min_experience_years
+    sort_axis: true
+    metric: {column: salary_mid, aggregate: AVG, label: Avg Salary (UZS)}
+    show_value: false
+    description: The experience-pay curve — how much each extra year of required experience is worth.
+    filters:
+      - {column: salary_currency, op: IN, values: [UZS]}
+      - {column: min_experience_years, op: IS NOT NULL}
+  jobs_top_companies:
+    title: Top Companies by Vacancies
+    type: bar
+    dataset: ds_comp_jobs
+    x_axis: company_name
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    row_limit: 15
+    description: The employers hiring most aggressively right now.
+    filters:
+      - {column: company_name, op: IS NOT NULL}
+  jobs_trusted_gauge:
+    title: Trusted Employers
+    type: gauge
+    dataset: ds_comp_jobs
+    metric: {column: is_trusted, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Share of vacancies posted by hh-verified (trusted) companies.
+  jobs_by_experience:
+    title: Vacancies by Required Experience
+    type: bar
+    dataset: ds_comp_jobs
+    x_axis: min_experience_years
+    sort_axis: true
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    description: Demand by seniority — entry-level (0) vs experienced roles (1/3/6+ years).
+    filters:
+      - {column: min_experience_years, op: IS NOT NULL}
+  jobs_skills_cloud:
+    title: Most Wanted Skills
+    type: word_cloud
+    dataset: ds_comp_jobs_skills
+    column: skill
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    row_limit: 80
+    description: The key skills employers ask for most across all vacancies.
+    filters:
+      - {column: skill, op: IS NOT NULL}
+  jobs_heat_emp_exp:
+    title: Employment Form × Experience
+    type: heatmap
+    dataset: ds_comp_jobs
+    x_axis: employment_form
+    groupby: min_experience_years
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    description: How seniority requirements differ between full-time, part-time and project work.
+    filters:
+      - {column: employment_form, op: IS NOT NULL}
+      - {column: min_experience_years, op: IS NOT NULL}
+  jobs_removed_daily:
+    title: Vacancies Closed per Day
+    type: line
+    dataset: ds_comp_jobs
+    x_axis: removed_at
+    time_column: removed_at
+    metric: {column: listing_sk, aggregate: COUNT, label: Closed}
+    description: Daily count of vacancies leaving the site — hiring completed or expired.
+  jobs_ttf_avg:
+    title: Avg Days a Vacancy Stays Open
+    type: big_number_total
+    dataset: ds_comp_jobs
+    metric: {column: days_open, aggregate: AVG, label: Avg Days Open}
+    description: Average lifetime of a closed vacancy — how fast positions get filled.
+    filters:
+      - {column: days_open, op: IS NOT NULL}
+  jobs_region_bar:
+    title: Vacancies by Region
+    type: bar
+    dataset: ds_comp_jobs
+    x_axis: region
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    row_limit: 20
+    description: Regional distribution of the hiring market.
+    filters:
+      - {column: region, op: IS NOT NULL}
+  jobs_city_bar:
+    title: Top Cities
+    type: bar
+    dataset: ds_comp_jobs
+    x_axis: city
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    row_limit: 15
+    description: Cities with the most vacancies.
+    filters:
+      - {column: city, op: IS NOT NULL}
+  jobs_employment:
+    title: Employment Form Share
+    type: pie
+    donut: true
+    dataset: ds_comp_jobs
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    groupby: employment_form
+    description: Full-time vs part-time vs project work split.
+    filters:
+      - {column: employment_form, op: IS NOT NULL}
+  jobs_companies_cloud:
+    title: Hiring Companies
+    type: word_cloud
+    dataset: ds_comp_jobs
+    column: company_name
+    metric: {column: listing_sk, aggregate: COUNT, label: Vacancies}
+    row_limit: 100
+    description: The employers posting the most vacancies right now.
+    filters:
+      - {column: company_name, op: IS NOT NULL}
+  jobs_salary_hist:
+    title: Salary Distribution (UZS)
+    type: histogram
+    dataset: ds_comp_jobs
+    column: salary_mid
+    bins: 25
+    description: Where offered salaries concentrate (UZS-quoted vacancies only).
+    filters:
+      - {column: salary_currency, op: IN, values: [UZS]}
+      - {column: salary_mid, op: IS NOT NULL}
+  jobs_salary_gauge:
+    title: Vacancies with Salary Specified
+    type: gauge
+    dataset: ds_comp_jobs
+    metric: {column: has_salary, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Salary transparency — share of vacancies that state a salary.
+  jobs_salary:
+    title: Salary by Employment Form (UZS)
+    type: pivot
+    dataset: ds_comp_jobs
+    metrics:
+      - {column: listing_sk, aggregate: COUNT, label: Vacancies}
+      - {column: salary_mid, aggregate: AVG, label: Avg Salary (UZS)}
+      - {sql: 'APPROX_PERCENTILE(salary_mid, 0.5)', label: Median Salary (UZS)}
+    rows: [employment_form]
+    description: Offered salary levels per employment form (UZS-quoted only).
+    filters:
+      - {column: salary_currency, op: IN, values: [UZS]}
+
+  # ================= Real estate
+  re_total:
+    title: Total Listings
+    type: big_number_total
+    dataset: ds_comp_re
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: All new-build listings captured from domtut.uz.
+  re_last_parsed:
+    title: Last Parsed
+    type: big_number_total
+    dataset: ds_comp_re
+    metric: {column: _olam_ingested_at, aggregate: MAX, label: Last Parsed}
+    timestamp: true
+    description: When the parser last delivered fresh domtut data.
+  re_active:
+    title: Active Now
+    type: big_number_total
+    dataset: ds_comp_re
+    metric: {column: listing_sk, aggregate: COUNT, label: Active}
+    description: Listings currently live on the site (not yet removed).
+    filters:
+      - {column: removed_at, op: IS NULL}
+  re_plans_total:
+    title: Floor Plans
+    type: big_number_total
+    dataset: ds_comp_re_plans
+    metric: {column: plan_sk, aggregate: COUNT, label: Floor Plans}
+    description: Total apartment floor plans across all tracked developments.
+  re_new_daily:
+    title: New Listings per Day
+    type: line
+    dataset: ds_comp_re
+    metric: {column: listing_sk, aggregate: COUNT, label: New Listings}
+    description: Daily inflow of newly discovered real-estate listings.
+  re_pipeline:
+    title: Supply Pipeline by Completion Date
+    type: line
+    dataset: ds_comp_re
+    x_axis: completion_date
+    time_column: completion_date
+    time_grain: P3M
+    area: true
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    description: When the tracked developments are scheduled to complete — future housing supply.
+    filters:
+      - {column: completion_date, op: IS NOT NULL}
+  re_median_price:
+    title: Median Price (UZS)
+    type: big_number_total
+    dataset: ds_comp_re
+    metric: {sql: 'APPROX_PERCENTILE(price_amount, 0.5)', label: Median Price (UZS)}
+    description: The typical asking price — robust against premium outliers.
+    filters:
+      - {column: price_currency, op: IN, values: [UZS]}
+  re_price_hist:
+    title: Price Distribution (UZS)
+    type: histogram
+    dataset: ds_comp_re
+    column: price_amount
+    bins: 40
+    description: Where new-build asking prices concentrate (rare 5B+ UZS listings excluded).
+    filters:
+      - {column: price_currency, op: IN, values: [UZS]}
+      - {column: price_amount, op: IS NOT NULL}
+      - {column: price_amount, op: '<=', value: 5000000000}
+  re_price_by_class:
+    title: Avg Price by Housing Class
+    type: bar
+    dataset: ds_comp_re
+    x_axis: housing_class
+    metric: {column: price_amount, aggregate: AVG, label: Avg Price (UZS)}
+    description: The premium each housing class commands.
+    filters:
+      - {column: housing_class, op: IS NOT NULL}
+      - {column: price_currency, op: IN, values: [UZS]}
+  re_heat_price:
+    title: Avg Price — Class × House Type
+    type: heatmap
+    dataset: ds_comp_re
+    x_axis: house_type
+    groupby: housing_class
+    metric: {column: price_amount, aggregate: AVG, label: Avg Price (UZS)}
+    description: Price matrix — which class/construction combinations are most expensive.
+    filters:
+      - {column: housing_class, op: IS NOT NULL}
+      - {column: house_type, op: IS NOT NULL}
+      - {column: price_currency, op: IN, values: [UZS]}
+  re_floors_hist:
+    title: Building Height Distribution (floors)
+    type: histogram
+    dataset: ds_comp_re
+    column: num_floors
+    bins: 20
+    description: How tall the tracked developments are — low-rise vs high-rise supply.
+    filters:
+      - {column: num_floors, op: IS NOT NULL}
+  re_walls_bar:
+    title: Wall Materials
+    type: bar
+    dataset: ds_comp_re
+    x_axis: walls
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Construction materials used across developments.
+    filters:
+      - {column: walls, op: IS NOT NULL}
+  re_heating_bar:
+    title: Heating Types
+    type: bar
+    dataset: ds_comp_re
+    x_axis: heating
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Heating systems offered in new builds.
+    filters:
+      - {column: heating, op: IS NOT NULL}
+  re_parking_bar:
+    title: Parking Options
+    type: bar
+    dataset: ds_comp_re
+    x_axis: parking
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Parking availability across developments.
+    filters:
+      - {column: parking, op: IS NOT NULL}
+  re_finishing_bar:
+    title: Finishing Levels
+    type: bar
+    dataset: ds_comp_re
+    x_axis: finishing
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Finishing offered — shell condition vs move-in ready.
+    filters:
+      - {column: finishing, op: IS NOT NULL}
+  re_area_by_rooms:
+    title: Avg Area by Room Count (m²)
+    type: bar
+    dataset: ds_comp_re_plans
+    x_axis: num_rooms
+    sort_axis: true
+    metric: {column: area_m2, aggregate: AVG, label: Avg Area (m²)}
+    description: How apartment size scales with room count.
+    filters:
+      - {column: num_rooms, op: IS NOT NULL}
+      - {column: area_m2, op: IS NOT NULL}
+  re_studio_gauge:
+    title: Studio Share
+    type: gauge
+    dataset: ds_comp_re_plans
+    metric: {column: is_studio_int, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Share of floor plans that are studios.
+  re_phone_gauge:
+    title: Listings with Phone
+    type: gauge
+    dataset: ds_comp_re
+    metric: {column: has_phone, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Share of developments exposing a sales phone number.
+  re_email_gauge:
+    title: Listings with Email
+    type: gauge
+    dataset: ds_comp_re
+    metric: {column: has_email, aggregate: AVG, label: Share}
+    max: 1
+    number_format: '.0%'
+    description: Share of developments exposing a contact email.
+  re_photos_avg:
+    title: Avg Photos per Listing
+    type: big_number_total
+    dataset: ds_comp_re
+    metric: {column: photos_cnt, aggregate: AVG, label: Avg Photos}
+    description: Average number of photos per development — a listing-quality signal.
+  re_removed_daily:
+    title: Removed per Day
+    type: line
+    dataset: ds_comp_re
+    x_axis: removed_at
+    time_column: removed_at
+    metric: {column: listing_sk, aggregate: COUNT, label: Removed}
+    description: Daily count of listings leaving the site — sold out or delisted.
+  re_dom_avg:
+    title: Avg Days on Market
+    type: big_number_total
+    dataset: ds_comp_re
+    metric: {column: days_on_market, aggregate: AVG, label: Avg Days on Market}
+    description: Average lifetime of a removed listing.
+    filters:
+      - {column: days_on_market, op: IS NOT NULL}
+  re_region_bar:
+    title: Listings by Region
+    type: bar
+    dataset: ds_comp_re
+    x_axis: region
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 20
+    description: Regional distribution of new-build supply.
+    filters:
+      - {column: region, op: IS NOT NULL}
+  re_city_bar:
+    title: Top Cities
+    type: bar
+    dataset: ds_comp_re
+    x_axis: city
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    row_limit: 15
+    description: Cities with the most developments.
+    filters:
+      - {column: city, op: IS NOT NULL}
+  re_sunburst:
+    title: Class → House Type
+    type: sunburst
+    dataset: ds_comp_re
+    metric: {column: listing_sk, aggregate: COUNT, label: Listings}
+    groupby: [housing_class, house_type]
+    description: Inventory composition — housing class broken down by construction type.
+    filters:
+      - {column: housing_class, op: IS NOT NULL}
+  re_area_hist:
+    title: Apartment Area Distribution (m²)
+    type: histogram
+    dataset: ds_comp_re_plans
+    column: area_m2
+    bins: 25
+    description: Apartment sizes on offer across all floor plans.
+    filters:
+      - {column: area_m2, op: IS NOT NULL}
+  re_rooms:
+    title: Floor Plans by Rooms
+    type: pie
+    donut: true
+    dataset: ds_comp_re_plans
+    metric: {column: plan_sk, aggregate: COUNT, label: Plans}
+    groupby: num_rooms
+    description: Room-count mix of the offered floor plans.
+    filters:
+      - {column: num_rooms, op: IS NOT NULL}
+  re_price:
+    title: Price by Class / House Type (UZS)
+    type: pivot
+    dataset: ds_comp_re
+    metrics:
+      - {column: listing_sk, aggregate: COUNT, label: Listings}
+      - {column: price_amount, aggregate: AVG, label: Avg Price (UZS)}
+      - {sql: 'APPROX_PERCENTILE(price_amount, 0.5)', label: Median Price (UZS)}
+    rows: [housing_class, house_type]
+    description: Asking price levels per housing class and construction type (UZS-quoted only).
+    filters:
+      - {column: price_currency, op: IN, values: [UZS]}
+
+layout:
+  tabs:
+    Overview:
+      - [[ov_total_auto, 4, 40], [ov_total_jobs, 4, 40], [ov_total_re, 4, 40]]
+      - [[ov_new_daily, 12, 65]]
+      - [[ov_sunburst, 5, 80], [ov_pivot, 7, 80]]
+    Auto:
+      - [[auto_hdr, 4, 45], [auto_total, 2, 45], [auto_active, 2, 45], [auto_removed, 2, 45], [auto_last_parsed, 2, 45]]
+      - [[auto_sec_lifecycle, 12, 8]]
+      - [[auto_new_daily, 6, 55], [auto_removed_daily, 6, 55]]
+      - divider
+      - [[auto_sec_prices, 12, 8]]
+      - [[auto_median_price, 3, 50], [auto_price_hist, 9, 50]]
+      - [[auto_depreciation, 12, 60]]
+      - [[auto_bubble_mileage, 12, 70]]
+      - [[auto_bubble, 12, 70]]
+      - divider
+      - [[auto_sec_market, 12, 8]]
+      - [[auto_brands, 12, 55]]
+      - divider
+      - [[auto_sec_specs, 12, 8]]
+      - [[auto_year_bar, 6, 55], [auto_mileage_hist, 6, 55]]
+      - [[auto_transmission, 4, 55], [auto_drive, 4, 55], [auto_fuel, 4, 55]]
+      - [[auto_body, 6, 55], [auto_color, 6, 55]]
+      - divider
+      - [[auto_sec_matrix, 12, 8]]
+      - [[auto_heat_brand_fuel, 6, 65], [auto_heat_brand_transmission, 6, 65]]
+      - [[auto_heat_brand_body, 12, 65]]
+      - divider
+      - [[auto_sec_geo, 12, 8]]
+      - [[auto_city_bar, 12, 55]]
+      - divider
+      - [[auto_sec_signals, 12, 8]]
+      - [[auto_negotiable_gauge, 4, 55], [auto_phone_gauge, 4, 55], [auto_photos_avg, 4, 55]]
+      - [[auto_phone_by_brand, 6, 60], [auto_options_cloud, 6, 60]]
+      - [[auto_brand_stats, 12, 80]]
+      - divider
+      - [[auto_sec_awaiting, 12, 12]]
+      - [[auto_dom_avg, 3, 50], [auto_dom_hist, 9, 50]]
+      - [[auto_region_bar, 6, 50], [auto_price_by_region, 6, 50]]
+      - [[auto_phone_by_region, 6, 50], [auto_heat_region_brand, 6, 50]]
+    Jobs:
+      - [[jobs_hdr, 4, 45], [jobs_total, 2, 45], [jobs_active, 2, 45], [jobs_companies_cnt, 2, 45], [jobs_last_parsed, 2, 45]]
+      - [[jobs_sec_lifecycle, 12, 8]]
+      - [[jobs_new_daily, 6, 55], [jobs_published_daily, 6, 55]]
+      - divider
+      - [[jobs_sec_salary, 12, 8]]
+      - [[jobs_salary_median, 3, 50], [jobs_salary_hist, 9, 50]]
+      - [[jobs_salary_gauge, 4, 60], [jobs_salary_by_exp, 8, 60]]
+      - [[jobs_salary, 12, 50]]
+      - divider
+      - [[jobs_sec_companies, 12, 8]]
+      - [[jobs_top_companies, 7, 60], [jobs_trusted_gauge, 5, 60]]
+      - [[jobs_companies_cloud, 12, 60]]
+      - divider
+      - [[jobs_sec_reqs, 12, 8]]
+      - [[jobs_employment, 4, 60], [jobs_by_experience, 8, 60]]
+      - [[jobs_skills_cloud, 7, 60], [jobs_heat_emp_exp, 5, 60]]
+      - divider
+      - [[jobs_sec_awaiting, 12, 12]]
+      - [[jobs_ttf_avg, 3, 50], [jobs_removed_daily, 9, 50]]
+      - [[jobs_region_bar, 6, 50], [jobs_city_bar, 6, 50]]
+    Real Estate:
+      - [[re_hdr, 4, 45], [re_total, 2, 45], [re_active, 2, 45], [re_plans_total, 2, 45], [re_last_parsed, 2, 45]]
+      - [[re_sec_lifecycle, 12, 8]]
+      - [[re_new_daily, 6, 55], [re_pipeline, 6, 55]]
+      - divider
+      - [[re_sec_prices, 12, 8]]
+      - [[re_median_price, 3, 50], [re_price_hist, 9, 50]]
+      - [[re_price_by_class, 6, 60], [re_heat_price, 6, 60]]
+      - [[re_price, 12, 70]]
+      - divider
+      - [[re_sec_building, 12, 8]]
+      - [[re_sunburst, 5, 80], [re_floors_hist, 7, 80]]
+      - [[re_walls_bar, 6, 55], [re_heating_bar, 6, 55]]
+      - [[re_parking_bar, 6, 55], [re_finishing_bar, 6, 55]]
+      - divider
+      - [[re_sec_plans, 12, 8]]
+      - [[re_rooms, 5, 70], [re_area_hist, 7, 70]]
+      - [[re_studio_gauge, 5, 55], [re_area_by_rooms, 7, 55]]
+      - divider
+      - [[re_sec_signals, 12, 8]]
+      - [[re_phone_gauge, 4, 55], [re_email_gauge, 4, 55], [re_photos_avg, 4, 55]]
+      - divider
+      - [[re_sec_awaiting, 12, 12]]
+      - [[re_dom_avg, 3, 50], [re_removed_daily, 9, 50]]
+      - [[re_region_bar, 6, 50], [re_city_bar, 6, 50]]
+
+filters:
+  - name: Source
+    dataset: ds_comp_overview
+    column: source
