@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import { t } from '@apache-superset/core/translation';
 import { styled } from '@apache-superset/core/theme';
 import { Button, Loading, SafeMarkdown } from '@superset-ui/core/components';
-import InlineChart from './InlineChart';
 import type { Msg } from './types';
 
 const Feed = styled.div`
@@ -223,7 +222,6 @@ export default function ChatFeed({
             </AssistantBlock>
           );
         if (m.kind === 'error') return <ErrorLine key={i}>{m.text}</ErrorLine>;
-        if (m.kind === 'chart') return <InlineChart key={i} chart={m} />;
         if (m.kind === 'embed')
           return (
             <EmbedCard key={i} data-test="ai-analyst-embed">
@@ -239,6 +237,9 @@ export default function ChatFeed({
               />
             </EmbedCard>
           );
+        // transcripts from older versions may contain kinds we no longer
+        // render (e.g. the removed inline 'chart'); skip them silently
+        if (m.kind !== 'approval') return null;
         return (
           <ApprovalCard key={i} data-test="ai-analyst-approval">
             <strong>{t('Apply to Superset?')}</strong>

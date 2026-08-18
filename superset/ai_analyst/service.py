@@ -92,6 +92,23 @@ class InProcessSupersetService:
             contents = get_contents_from_bundle(bundle)
         ImportDashboardsCommand(contents, overwrite=True).run()
 
+    def import_chart(self, bundle_zip: bytes) -> None:
+        from superset.commands.chart.importers.dispatcher import (
+            ImportChartsCommand,
+        )
+
+        with ZipFile(io.BytesIO(bundle_zip)) as bundle:
+            contents = get_contents_from_bundle(bundle)
+        ImportChartsCommand(contents, overwrite=True).run()
+
+    def chart_id_by_uuid(self, chart_uuid: str) -> int | None:
+        from superset.models.slice import Slice
+
+        try:
+            return Slice.get(chart_uuid).id
+        except Exception:  # noqa: BLE001 - not found
+            return None
+
     # --------------------------------------------------------------- verify
 
     def _dashboard(self, id_or_slug: str):

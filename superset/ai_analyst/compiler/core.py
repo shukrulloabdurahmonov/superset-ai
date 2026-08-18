@@ -1060,6 +1060,45 @@ class Compiler:
         return bundle, buf.getvalue()
 
 
+    def compile_chart(self, spec: dict,
+                      timestamp: str | None = None) -> tuple[str, bytes]:
+        """Single standalone chart -> Slice import bundle.
+
+        spec: {dataset: {name, sql, columns, ...}, chart: {slug, title, type,
+        ...same shape as a dashboard-spec chart...}}. Returns
+        (chart_uuid, zip bytes).
+        """
+        ds_spec = spec.get("dataset") or {}
+        c_spec = dict(spec.get("chart") or {})
+        name = ds_spec.get("name")
+        slug = c_spec.pop("slug", None) or "chart"
+        if not name or not c_spec.get("title") or not c_spec.get("type"):
+            raise SpecError("chart spec needs dataset.name, chart.title "
+                            "and chart.type")
+        c_spec["dataset"] = name
+        dataset = self.build_dataset(name, ds_spec)
+        chart = self.build_chart(slug, c_spec, f"standalone:{slug}",
+                                 {name: ds_spec}, {name: dataset["uuid"]})
+        bundle = f"{slug}_chart_bundle"
+        files = {
+            f"{bundle}/metadata.yaml": self.ydump({
+                "version": "1.0.0",
+                "type": "Slice",
+                "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+            }),
+            f"{bundle}/databases/{self.db.name}.yaml": self.db.yaml_text,
+            f"{bundle}/datasets/{self.db.name}/{name}.yaml": self.ydump(dataset),
+            f"{bundle}/charts/{slug}.yaml": self.ydump(chart),
+        }
+        for content in files.values():
+            yaml.safe_load(io.StringIO(content))
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for path, content in sorted(files.items()):
+                z.writestr(path, content)
+        return chart["uuid"], buf.getvalue()
+
+
 SUPPORTED_VIZ_TYPES = sorted(
     k for k in Compiler.VIZ_TYPES if "_timeseries" not in k
 )
