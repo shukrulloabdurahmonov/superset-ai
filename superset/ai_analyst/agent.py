@@ -28,9 +28,15 @@ dashboards. You work for any company: discover what data exists with your
 tools instead of assuming anything about it.
 
 # Workflow for building a dashboard
-1. Discover: list databases/schemas/tables, describe candidate tables.
+1. Discover: call get_data_catalog FIRST — if a catalog doc exists, trust it
+   and skip re-exploring what it already covers. Otherwise list
+   databases/schemas/tables and describe candidate tables.
 2. Profile: run small read-only queries (counts, distincts, min/max dates,
    null rates) so charts are designed around the data that actually exists.
+   After learning anything non-obvious about the data (meanings, quirks,
+   partial periods, units, join keys), call save_data_catalog with updated
+   notes so future conversations skip this work. Structure (tables/columns/
+   counts) is auto-maintained — only write insights.
 3. Design: write a dashboard spec (schema below). Prefer varied viz types,
    group charts into sections with markdown headers, give every chart a
    one-sentence business description.
@@ -66,11 +72,11 @@ guessing.
 
 PLAN_MODE_PROMPT = """\
 PLAN MODE IS ON for this turn. If the user is asking you to BUILD or MODIFY
-a dashboard: explore/profile as needed, then present a concise plan —
-sections, charts (type + metric + dimension), datasets — as a short readable
-list, and END YOUR TURN asking whether to proceed. Do NOT call validate_spec
-or apply_spec in the same turn as the plan. Only after the user confirms
-(e.g. "yes", "go", "build it") do the actual build in a later turn.
+a dashboard: explore/profile as needed, then call propose_plan with a
+concise markdown plan — sections, charts (type + metric + dimension),
+datasets — and END YOUR TURN (the user gets an Approve button). Do NOT call
+validate_spec or apply_spec in the same turn as the plan. Only after the
+user approves do the actual build in a later turn.
 Plain data questions are exempt — answer them directly.
 """
 
@@ -156,6 +162,7 @@ class AnalystAgent:
         self.on_tool = on_tool or (lambda name, args: None)
         self.on_approval = on_approval or (lambda aid, summary, spec: None)
         self.on_embed = on_embed or (lambda payload: None)
+        self.on_plan = lambda plan_markdown: None  # set by the web API
         self.defer_apply = defer_apply
         self.namespace = namespace
         self.messages: list[dict] = []
@@ -340,6 +347,66 @@ class AnalystAgent:
             })
 
         @beta_tool
+        def propose_plan(plan_markdown: str) -> str:
+            """Present a dashboard build/modify plan to the user for approval
+            (they get an Approve button). Call this in plan mode instead of
+            writing the plan as a normal message, then end your turn.
+
+            Args:
+                plan_markdown: the concise plan in markdown.
+            """
+            agent.on_plan(plan_markdown)
+            return json.dumps({"ok": True,
+                               "note": "plan shown with an Approve button; "
+                                       "end your turn now and wait"})
+
+        @beta_tool
+        def get_data_catalog(database_id: int) -> str:
+            """Read the data catalog for a database: an auto-refreshed
+            structural snapshot (schemas, tables, columns, row counts, date
+            ranges) plus semantic notes from earlier sessions. Call this
+            FIRST before exploring; trust it unless evidence disagrees. If
+            no catalog exists yet, one is generated now (may take a moment).
+
+            Args:
+                database_id: numeric id from list_databases.
+            """
+            try:
+                from superset.ai_analyst import catalog as _catalog
+                from superset.ai_analyst import models as _models
+                found = _models.get_catalog(int(database_id))
+                if found is None or not found[0]:
+                    _catalog.refresh_database(int(database_id))
+                    found = _models.get_catalog(int(database_id))
+            except Exception as e:  # noqa: BLE001 - CLI/REST modes
+                return json.dumps({"error": f"catalog unavailable: {e}"})
+            if found is None:
+                return json.dumps({"catalog": None})
+            doc, notes, changed_on = found
+            return json.dumps({"structure": doc, "agent_notes": notes,
+                               "updated": changed_on})
+
+        @beta_tool
+        def save_data_catalog(database_id: int, notes_markdown: str) -> str:
+            """Save/replace your semantic NOTES about a database so future
+            conversations skip re-learning them. The structural part
+            (schemas/tables/columns/counts) is maintained automatically —
+            write only insights: what tables/columns MEAN, value domains,
+            quirks (nulls, partial periods, units, join keys), gotchas.
+
+            Args:
+                database_id: numeric id from list_databases.
+                notes_markdown: the full replacement notes document.
+            """
+            try:
+                from superset.ai_analyst import models as _models
+                _models.save_catalog(int(database_id), notes=notes_markdown)
+            except Exception as e:  # noqa: BLE001 - CLI/REST modes
+                return json.dumps({"ok": False,
+                                   "error": f"catalog unavailable: {e}"})
+            return json.dumps({"ok": True})
+
+        @beta_tool
         def create_chart(chart_spec_yaml: str, database_id: int) -> str:
             """Create a single saved Superset chart and embed it in the chat.
             Use when the user wants a chart that doesn't exist yet and a full
@@ -420,7 +487,8 @@ class AnalystAgent:
 
         return [list_databases, list_schemas, list_tables, describe_table,
                 run_sql, validate_spec, apply_spec, get_dashboard_spec,
-                create_chart, embed_chart, verify_dashboard]
+                create_chart, embed_chart, verify_dashboard, propose_plan,
+                get_data_catalog, save_data_catalog]
 
     # ------------------------------------------------------- deferred apply
 
@@ -451,11 +519,22 @@ class AnalystAgent:
     # -------------------------------------------------------- serialization
 
     @staticmethod
-    def _dump_message(msg: dict) -> dict:
+    def _clean_block(block):
+        """SDK block -> plain dict the API accepts back as input: drop None
+        values and SDK-only response fields (e.g. parsed_output), which the
+        Messages API rejects with 'Extra inputs are not permitted'."""
+        if hasattr(block, "model_dump"):
+            block = block.model_dump()
+        if isinstance(block, dict):
+            block = {k: v for k, v in block.items()
+                     if v is not None and k not in ("parsed_output",)}
+        return block
+
+    @classmethod
+    def _dump_message(cls, msg: dict) -> dict:
         content = msg.get("content")
         if isinstance(content, list):
-            content = [b.model_dump() if hasattr(b, "model_dump") else b
-                       for b in content]
+            content = [cls._clean_block(b) for b in content]
         return {"role": msg["role"], "content": content}
 
     def export_messages(self) -> list[dict]:
@@ -463,7 +542,9 @@ class AnalystAgent:
         return [self._dump_message(m) for m in self.messages]
 
     def load_messages(self, messages: list[dict]) -> None:
-        self.messages = list(messages)
+        # re-clean on load too: rows persisted by older versions may still
+        # carry fields the API rejects
+        self.messages = [self._dump_message(m) for m in messages]
 
     def chat(self, user_input: str, attachments: list[dict] | None = None,
              plan_mode: bool = False) -> str:

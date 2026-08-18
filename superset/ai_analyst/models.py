@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from flask_appbuilder import Model
 from sqlalchemy import Column, DateTime, Integer, String, Text, func, inspect
+from sqlalchemy import text as sa_text
 
 
 class AiAnalystSpec(Model):
@@ -44,13 +45,70 @@ class AiAnalystChat(Model):
     changed_on = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class AiAnalystCatalog(Model):
+    """Data-catalog snapshot for a database. `doc` is the STRUCTURAL
+    snapshot (auto-generated, see catalog.py); `notes` are semantic
+    insights written by the agent and never overwritten by refreshes."""
+
+    __tablename__ = "ai_analyst_catalog"
+
+    database_id = Column(Integer, primary_key=True)
+    doc = Column(Text, nullable=False, default="")
+    notes = Column(Text, nullable=False, default="")
+    changed_on = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 def ensure_table() -> None:
     from superset.extensions import db
 
     insp = inspect(db.engine)
-    for model in (AiAnalystSpec, AiAnalystChat):
+    for model in (AiAnalystSpec, AiAnalystChat, AiAnalystCatalog):
         if not insp.has_table(model.__tablename__):
             model.__table__.create(db.engine, checkfirst=True)
+    # lightweight additive migration (no alembic head to clash with upstream)
+    cols = {c["name"] for c in inspect(db.engine).get_columns(
+        AiAnalystCatalog.__tablename__)}
+    if "notes" not in cols:
+        with db.engine.connect() as conn:
+            conn.execute(sa_text(
+                "ALTER TABLE ai_analyst_catalog "
+                "ADD COLUMN notes TEXT NOT NULL DEFAULT ''"))
+            conn.commit()
+
+
+def get_catalog(database_id: int) -> tuple[str, str, str] | None:
+    """-> (structural doc, agent notes, changed_on iso) or None."""
+    from superset.extensions import db
+
+    row = db.session.query(AiAnalystCatalog).filter_by(
+        database_id=database_id).one_or_none()
+    if row is None:
+        return None
+    return (row.doc or "", row.notes or "",
+            row.changed_on.isoformat() if row.changed_on else "")
+
+
+def save_catalog(database_id: int, doc: str | None = None,
+                 notes: str | None = None) -> None:
+    """Partial update: refresher passes doc, the agent passes notes."""
+    from superset.extensions import db
+
+    row = db.session.query(AiAnalystCatalog).filter_by(
+        database_id=database_id).one_or_none()
+    if row is None:
+        row = AiAnalystCatalog(database_id=database_id, doc="", notes="")
+        db.session.add(row)
+    if doc is not None:
+        row.doc = doc
+    if notes is not None:
+        row.notes = notes
+    db.session.commit()
+
+
+def catalog_database_ids() -> list[int]:
+    from superset.extensions import db
+
+    return [r.database_id for r in db.session.query(AiAnalystCatalog).all()]
 
 
 def upsert_spec(slug: str, database_id: int, spec_yaml: str) -> None:

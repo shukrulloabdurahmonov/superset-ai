@@ -157,10 +157,15 @@ class AiAnalystRestApi(BaseSupersetApi):
             agent.ui.append({"kind": "embed", **payload})
             emit("embed", payload)
 
+        def on_plan(plan_markdown: str) -> None:
+            agent.ui.append({"kind": "plan", "text": plan_markdown})
+            emit("plan", {"text": plan_markdown})
+
         agent.on_text = on_text
         agent.on_tool = on_tool
         agent.on_approval = on_approval
         agent.on_embed = on_embed
+        agent.on_plan = on_plan
 
         app = current_app._get_current_object()
 

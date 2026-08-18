@@ -74,6 +74,22 @@ http://localhost:8088 (admin/admin).
 Note: after adding/renaming API endpoints, run `superset init` so
 Flask-AppBuilder grants the new method permissions to roles.
 
+## Data catalog
+
+Per-database snapshot the agent reads instead of re-exploring every request
+(`ai_analyst_catalog`): a STRUCTURAL part (schemas/tables/columns/row
+counts/date ranges) generated deterministically by `catalog.py` — refreshed
+in a background thread every `AI_ANALYST_CATALOG_REFRESH_HOURS` (default 2,
+0 disables) for databases that have a catalog row, and lazily on first
+`get_data_catalog` call — plus agent-written NOTES (semantic quirks) that
+refreshes never touch.
+
+## Plan mode
+
+With "Plan first" on, build/modify requests call the `propose_plan` tool:
+the chat renders the plan with an "Approve & build" button; nothing is
+compiled until the user approves (button or free text).
+
 Config (superset_config.py): `AI_ANALYST_ENABLED`, `AI_ANALYST_MODEL`
 (default `claude-opus-5`), `AI_ANALYST_API_KEY` (falls back to env
 `ANTHROPIC_API_KEY`; never exposed to the frontend).

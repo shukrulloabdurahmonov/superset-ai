@@ -33,10 +33,21 @@ const ChatPane = styled.div<{ docked: boolean }>`
 `;
 
 const Title = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${({ theme }) => theme.sizeUnit * 2}px;
   padding: ${({ theme }) => theme.sizeUnit * 2}px
     ${({ theme }) => theme.sizeUnit * 3}px 0;
   h2 {
     margin: 0;
+  }
+  .sidebar-toggle {
+    border: 1px solid ${({ theme }) => theme.colorSplit};
+    border-radius: 6px;
+    background: ${({ theme }) => theme.colorBgContainer};
+    cursor: pointer;
+    padding: 2px 8px;
+    color: ${({ theme }) => theme.colorTextSecondary};
   }
 `;
 
@@ -58,18 +69,29 @@ export default function AiAnalyst() {
     removeChat,
   } = useChat();
   const [draft, setDraft] = useState('');
+  const [showSidebar, setShowSidebar] = useState(true);
 
   return (
     <Page>
-      <Sidebar
-        chats={chats}
-        activeId={chatId}
-        onOpen={openChat}
-        onNew={newChat}
-        onDelete={removeChat}
-      />
+      {showSidebar && (
+        <Sidebar
+          chats={chats}
+          activeId={chatId}
+          onOpen={openChat}
+          onNew={newChat}
+          onDelete={removeChat}
+        />
+      )}
       <ChatPane docked={!!preview}>
         <Title>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            title={showSidebar ? t('Hide chat history') : t('Show chat history')}
+            onClick={() => setShowSidebar(v => !v)}
+          >
+            {showSidebar ? '◀' : '▶'}
+          </button>
           <h2>{t('AI Analyst')}</h2>
         </Title>
         <ChatFeed
@@ -78,6 +100,9 @@ export default function AiAnalyst() {
           onApproval={resolveApproval}
           onOpen={openPreview}
           onSuggestion={setDraft}
+          onPlanApprove={() =>
+            send('Approved — proceed and build exactly that plan.', [])
+          }
         />
         <Composer
           busy={busy}

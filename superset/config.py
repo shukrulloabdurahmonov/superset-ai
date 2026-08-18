@@ -542,6 +542,8 @@ CURRENCIES = ["USD", "EUR", "GBP", "INR", "MXN", "JPY", "CNY"]
 AI_ANALYST_ENABLED = False
 AI_ANALYST_MODEL = "claude-opus-5"
 AI_ANALYST_API_KEY: str | None = None  # falls back to env ANTHROPIC_API_KEY
+# background refresh of data-catalog structural snapshots (0 disables)
+AI_ANALYST_CATALOG_REFRESH_HOURS = 2
 # ------------------------------------------------------------------------
 
 DEFAULT_FEATURE_FLAGS: dict[str, bool] = {

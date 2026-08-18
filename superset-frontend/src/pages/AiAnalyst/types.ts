@@ -6,6 +6,7 @@ export type Msg =
   | { kind: 'tool'; name: string; args: Record<string, string> }
   | { kind: 'error'; text: string }
   | { kind: 'embed'; slice_id: number; title: string; url: string }
+  | { kind: 'plan'; text: string }
   | {
       kind: 'approval';
       approvalId: string;

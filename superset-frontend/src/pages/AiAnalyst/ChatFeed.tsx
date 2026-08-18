@@ -143,12 +143,14 @@ export default function ChatFeed({
   onApproval,
   onOpen,
   onSuggestion,
+  onPlanApprove,
 }: {
   messages: Msg[];
   busy: boolean;
   onApproval: (approvalId: string, approve: boolean) => void;
   onOpen: (url: string) => void;
   onSuggestion: (text: string) => void;
+  onPlanApprove: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -166,6 +168,15 @@ export default function ChatFeed({
     });
     return out;
   }, [messages]);
+
+  // a plan is actionable until the user replies to it
+  const lastUserPos = useMemo(() => {
+    let pos = -1;
+    grouped.forEach((e, i) => {
+      if (e.g === 'msg' && e.m.kind === 'user') pos = i;
+    });
+    return pos;
+  }, [grouped]);
 
   return (
     <Feed ref={ref} data-test="ai-analyst-feed">
@@ -222,14 +233,36 @@ export default function ChatFeed({
             </AssistantBlock>
           );
         if (m.kind === 'error') return <ErrorLine key={i}>{m.text}</ErrorLine>;
+        if (m.kind === 'plan') {
+          const actionable = i > lastUserPos;
+          return (
+            <ApprovalCard key={i} data-test="ai-analyst-plan">
+              <strong>{t('Proposed plan')}</strong>
+              <SafeMarkdown source={m.text} />
+              {actionable && !busy && (
+                <div className="actions">
+                  <Button buttonStyle="primary" onClick={onPlanApprove}>
+                    {t('Approve & build')}
+                  </Button>
+                  <span>{t('or describe what to change')}</span>
+                </div>
+              )}
+            </ApprovalCard>
+          );
+        }
         if (m.kind === 'embed')
           return (
             <EmbedCard key={i} data-test="ai-analyst-embed">
               <div className="head">
                 <span>{m.title || t('Chart')}</span>
-                <a href={m.url} target="_blank" rel="noreferrer">
-                  {t('Open in new tab')}
-                </a>
+                <span>
+                  <Button size="small" onClick={() => onOpen(m.url)}>
+                    {t('Open')}
+                  </Button>{' '}
+                  <a href={m.url} target="_blank" rel="noreferrer">
+                    {t('Open in new tab')}
+                  </a>
+                </span>
               </div>
               <iframe
                 src={`${m.url}${m.url.includes('?') ? '&' : '?'}standalone=1`}

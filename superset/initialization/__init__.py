@@ -245,6 +245,12 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
             from superset.ai_analyst.views import AiAnalystView
 
             ai_analyst_models.ensure_table()
+            from superset.ai_analyst.catalog import start_background_refresher
+
+            start_background_refresher(
+                self.superset_app,
+                float(self.config.get("AI_ANALYST_CATALOG_REFRESH_HOURS", 2)),
+            )
             appbuilder.add_api(AiAnalystRestApi)
             appbuilder.add_view(
                 AiAnalystView,

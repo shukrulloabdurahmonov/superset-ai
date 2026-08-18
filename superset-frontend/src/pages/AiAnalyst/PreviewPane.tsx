@@ -47,6 +47,8 @@ export default function PreviewPane({
   onClose: () => void;
 }) {
   const sep = url.includes('?') ? '&' : '?';
+  // dashboards use standalone=3 (no chrome); explore/chart pages use =1
+  const standalone = url.includes('/explore') ? '1' : '3';
   return (
     <Wrap data-test="ai-analyst-preview">
       <Header>
@@ -61,7 +63,7 @@ export default function PreviewPane({
       </Header>
       <Frame
         key={nonce}
-        src={`${url}${sep}standalone=3`}
+        src={`${url}${sep}standalone=${standalone}`}
         title={t('Dashboard preview')}
       />
     </Wrap>
