@@ -58,10 +58,21 @@ http://localhost:8088 (admin/admin).
 
 ## REST API
 
-- `POST /api/v1/ai_analyst/chat` `{message, session_id?}` → SSE stream
-  (`session`, `text`, `tool`, `approval_request`, `done`, `error`)
-- `POST /api/v1/ai_analyst/apply` `{session_id, approval_id, approve}`
-- `GET  /api/v1/ai_analyst/session/<id>` → pending approvals
+- `POST /api/v1/ai_analyst/chat`
+  `{message, chat_id?, plan_mode?, attachments?: [{name, mime, data_b64}]}`
+  → SSE stream (`chat`, `text`, `tool`, `approval_request`, `done`, `error`).
+  Attachments: png/jpeg/gif/webp images (≤4 MB, sent to the model as vision
+  input) and text/CSV/JSON/SQL/YAML files (≤100 KB text used as context).
+  `plan_mode` makes build/modify tasks present a plan and stop for
+  confirmation before anything is created.
+- `POST /api/v1/ai_analyst/apply` `{chat_id, approval_id, approve}`
+- `GET/DELETE /api/v1/ai_analyst/chats[/<id>]` — conversations are persisted
+  per user (`ai_analyst_chat`) after every turn and survive restarts; the
+  UI's sidebar, transcript restore, and the docked dashboard preview
+  (`?standalone=3` iframe) are built on these.
+
+Note: after adding/renaming API endpoints, run `superset init` so
+Flask-AppBuilder grants the new method permissions to roles.
 
 Config (superset_config.py): `AI_ANALYST_ENABLED`, `AI_ANALYST_MODEL`
 (default `claude-opus-5`), `AI_ANALYST_API_KEY` (falls back to env

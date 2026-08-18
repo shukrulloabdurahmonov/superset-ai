@@ -60,6 +60,62 @@ guessing.
 {SPEC_GUIDE}
 """
 
+PLAN_MODE_PROMPT = """\
+PLAN MODE IS ON for this turn. If the user is asking you to BUILD or MODIFY
+a dashboard: explore/profile as needed, then present a concise plan —
+sections, charts (type + metric + dimension), datasets — as a short readable
+list, and END YOUR TURN asking whether to proceed. Do NOT call validate_spec
+or apply_spec in the same turn as the plan. Only after the user confirms
+(e.g. "yes", "go", "build it") do the actual build in a later turn.
+Plain data questions are exempt — answer them directly.
+"""
+
+IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+TEXT_MIME_PREFIXES = ("text/",)
+TEXT_MIMES = {"application/json", "application/x-yaml", "application/csv",
+              "application/xml", "application/sql"}
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+MAX_TEXT_CHARS = 100_000
+
+
+def _attachment_blocks(attachments: list[dict]) -> list[dict]:
+    """[{name, mime, data_b64}] -> Anthropic content blocks. Raises ValueError
+    on unsupported/oversized attachments (before any API call is made)."""
+    import base64
+
+    blocks: list[dict] = []
+    for a in attachments:
+        name = a.get("name", "attachment")
+        mime = (a.get("mime") or "").split(";")[0].strip().lower()
+        data = a.get("data_b64") or ""
+        if mime in IMAGE_MIMES:
+            if len(data) * 3 // 4 > MAX_IMAGE_BYTES:
+                raise ValueError(f"image '{name}' exceeds 4 MB")
+            blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime, "data": data},
+            })
+            blocks.append({"type": "text", "text": f"[Attached image: {name}]"})
+        elif mime in TEXT_MIMES or mime.startswith(TEXT_MIME_PREFIXES):
+            try:
+                text = base64.b64decode(data).decode("utf-8", errors="replace")
+            except Exception as e:  # noqa: BLE001
+                raise ValueError(f"could not decode '{name}': {e}") from e
+            truncated = len(text) > MAX_TEXT_CHARS
+            text = text[:MAX_TEXT_CHARS]
+            note = " (truncated)" if truncated else ""
+            blocks.append({
+                "type": "text",
+                "text": f"[Attached file: {name}{note}]\n```\n{text}\n```",
+            })
+        else:
+            raise ValueError(
+                f"attachment '{name}' has unsupported type '{mime}'. "
+                "Supported: png/jpeg/gif/webp images and text files "
+                "(csv, json, sql, yaml, plain text)."
+            )
+    return blocks
+
 
 class AnalystAgent:
     def __init__(
@@ -323,15 +379,42 @@ class AnalystAgent:
 
     # ----------------------------------------------------------------- chat
 
-    def chat(self, user_input: str) -> str:
+    # -------------------------------------------------------- serialization
+
+    @staticmethod
+    def _dump_message(msg: dict) -> dict:
+        content = msg.get("content")
+        if isinstance(content, list):
+            content = [b.model_dump() if hasattr(b, "model_dump") else b
+                       for b in content]
+        return {"role": msg["role"], "content": content}
+
+    def export_messages(self) -> list[dict]:
+        """JSON-safe message history (thinking signatures preserved)."""
+        return [self._dump_message(m) for m in self.messages]
+
+    def load_messages(self, messages: list[dict]) -> None:
+        self.messages = list(messages)
+
+    def chat(self, user_input: str, attachments: list[dict] | None = None,
+             plan_mode: bool = False) -> str:
         """One user turn; runs the tool loop to completion, returns final text."""
-        self.messages.append({"role": "user", "content": user_input})
+        if attachments:
+            content: list[dict] | str = _attachment_blocks(attachments) + [
+                {"type": "text", "text": user_input}
+            ]
+        else:
+            content = user_input
+        self.messages.append({"role": "user", "content": content})
+        system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT,
+                               "cache_control": {"type": "ephemeral"}}]
+        if plan_mode:
+            system.append({"type": "text", "text": PLAN_MODE_PROMPT})
         runner = self.client.beta.messages.tool_runner(
             model=self.model,
             max_tokens=16000,
             thinking={"type": "adaptive"},
-            system=[{"type": "text", "text": SYSTEM_PROMPT,
-                     "cache_control": {"type": "ephemeral"}}],
+            system=system,
             tools=self.tools,
             messages=self.messages,
         )
