@@ -242,9 +242,16 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         if self.config.get("AI_ANALYST_ENABLED"):
             from superset.ai_analyst import models as ai_analyst_models
             from superset.ai_analyst.api import AiAnalystRestApi
+            from superset.ai_analyst.views import AiAnalystView
 
             ai_analyst_models.ensure_table()
             appbuilder.add_api(AiAnalystRestApi)
+            appbuilder.add_view(
+                AiAnalystView,
+                "AI Analyst",
+                label=_("AI Analyst"),
+                icon="fa-comments-o",
+            )
         appbuilder.add_api(AnnotationRestApi)
         appbuilder.add_api(AnnotationLayerRestApi)
         appbuilder.add_api(AsyncEventsRestApi)

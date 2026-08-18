@@ -30,6 +30,11 @@ import getBootstrapData from 'src/utils/getBootstrapData';
 // not lazy loaded since this is the home page.
 import Home from 'src/pages/Home';
 
+// fork-local (AI Analyst)
+const AiAnalyst = lazy(
+  () => import(/* webpackChunkName: "AiAnalyst" */ 'src/pages/AiAnalyst'),
+);
+
 const ChartCreation = lazy(
   () =>
     import(/* webpackChunkName: "ChartCreation" */ 'src/pages/ChartCreation'),
@@ -320,6 +325,11 @@ export const routes: Routes = [
   {
     path: '/sqllab/',
     Component: SqlLab,
+  },
+  {
+    // fork-local (AI Analyst)
+    path: '/aianalyst/',
+    Component: AiAnalyst,
   },
   { path: '/user_info/', Component: UserInfo },
   {

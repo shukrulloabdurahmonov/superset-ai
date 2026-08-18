@@ -82,9 +82,10 @@ Superset instance; the compiler must reproduce them byte-identically.
 All AI Analyst code lives in `superset/ai_analyst/` and
 `superset-frontend/src/aiAnalyst/`. Upstream touch-points (keep this list
 current):
-1. `superset/initialization/__init__.py` — API registration (config-gated)
+1. `superset/initialization/__init__.py` — API + view registration (config-gated)
 2. `superset/config.py` — `AI_ANALYST_*` defaults
 3. `pyproject.toml` — `ai-analyst` optional dependency
+4. `superset-frontend/src/views/routes.tsx` — `/aianalyst/` route
 
 When merging an upstream Superset release tag, conflicts should only ever
 appear in these files.
