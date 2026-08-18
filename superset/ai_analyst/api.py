@@ -153,9 +153,19 @@ class AiAnalystRestApi(BaseSupersetApi):
             emit("approval_request", {"approval_id": aid, "summary": summary,
                                       "spec_yaml": spec_yaml})
 
+        def on_chart(payload: dict) -> None:
+            agent.ui.append({"kind": "chart", **payload})
+            emit("chart", payload)
+
+        def on_embed(payload: dict) -> None:
+            agent.ui.append({"kind": "embed", **payload})
+            emit("embed", payload)
+
         agent.on_text = on_text
         agent.on_tool = on_tool
         agent.on_approval = on_approval
+        agent.on_chart = on_chart
+        agent.on_embed = on_embed
 
         app = current_app._get_current_object()
 

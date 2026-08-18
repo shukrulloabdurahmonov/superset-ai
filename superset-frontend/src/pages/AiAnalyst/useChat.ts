@@ -107,6 +107,8 @@ export function useChat() {
                 specYaml: data.spec_yaml,
                 state: 'pending',
               });
+            else if (event === 'chart') push({ kind: 'chart', ...data });
+            else if (event === 'embed') push({ kind: 'embed', ...data });
             else if (event === 'error')
               push({ kind: 'error', text: data.message });
           }

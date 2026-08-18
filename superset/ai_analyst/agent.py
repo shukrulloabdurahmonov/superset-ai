@@ -54,7 +54,10 @@ guessing.
 - Never invent tables or columns: describe them first.
 - Keep dataset SQL efficient: aggregate in SQL when a chart needs it.
 - Answer data questions directly with run_sql; you don't need a dashboard
-  for every question.
+  for every question. When a visual would make the answer clearer (trends,
+  comparisons, distributions), follow up run_sql with display_chart to show
+  the result inline — it creates nothing in Superset. Use embed_chart to
+  show an existing saved chart live in the conversation.
 - Supported viz types: {", ".join(SUPPORTED_VIZ_TYPES)}. No others.
 
 {SPEC_GUIDE}
@@ -127,6 +130,8 @@ class AnalystAgent:
         on_text: Callable[[str], None] | None = None,
         on_tool: Callable[[str, dict], None] | None = None,
         on_approval: Callable[[str, str, str], None] | None = None,
+        on_chart: Callable[[dict], None] | None = None,
+        on_embed: Callable[[dict], None] | None = None,
         defer_apply: bool = False,
         namespace: str = "superset.ai-analyst",
     ):
@@ -150,6 +155,8 @@ class AnalystAgent:
         self.on_text = on_text or print
         self.on_tool = on_tool or (lambda name, args: None)
         self.on_approval = on_approval or (lambda aid, summary, spec: None)
+        self.on_chart = on_chart or (lambda payload: None)
+        self.on_embed = on_embed or (lambda payload: None)
         self.defer_apply = defer_apply
         self.namespace = namespace
         self.messages: list[dict] = []
@@ -334,6 +341,70 @@ class AnalystAgent:
             })
 
         @beta_tool
+        def display_chart(title: str, chart_type: str, data_json: str,
+                          x: str, y: str, series: str = "") -> str:
+            """Render a chart INLINE IN THE CHAT from data you already have
+            (typically a run_sql result). Creates NOTHING in Superset — use it
+            to make an answer visual. For permanent charts use apply_spec.
+
+            Args:
+                title: short chart heading shown above the chart.
+                chart_type: one of bar, line, area, pie, scatter.
+                data_json: JSON array of row objects, max 500 rows,
+                    e.g. '[{"region": "East", "revenue": 62528}]'.
+                x: column used for the x-axis (pie: the label column;
+                    scatter: numeric x).
+                y: numeric value column; may be a comma-separated list of
+                    columns to plot several series (not for pie).
+                series: optional column whose values split rows into series
+                    (alternative to a multi-column y; not for pie/scatter).
+            """
+            if chart_type not in ("bar", "line", "area", "pie", "scatter"):
+                return json.dumps({"ok": False, "error":
+                                   "chart_type must be bar|line|area|pie|scatter"})
+            try:
+                rows = json.loads(data_json)
+                assert isinstance(rows, list) and rows, "empty data"
+            except Exception as e:  # noqa: BLE001
+                return json.dumps({"ok": False,
+                                   "error": f"data_json invalid: {e}"})
+            rows = rows[:500]
+            cols = set(rows[0])
+            y_cols = [c.strip() for c in y.split(",") if c.strip()]
+            missing = [c for c in [x, *y_cols, *( [series] if series else [] )]
+                       if c not in cols]
+            if missing:
+                return json.dumps({"ok": False,
+                                   "error": f"columns not in data: {missing}"})
+            agent.on_chart({"title": title, "chart_type": chart_type,
+                            "rows": rows, "x": x, "y": y_cols,
+                            "series": series or None})
+            return json.dumps({"ok": True,
+                               "note": "chart rendered in the chat"})
+
+        @beta_tool
+        def embed_chart(slice_id: int, title: str = "") -> str:
+            """Embed an EXISTING saved Superset chart inline in the chat
+            (live, interactive). Use verify_dashboard / dashboard data to
+            find slice ids.
+
+            Args:
+                slice_id: the chart's numeric id in Superset.
+                title: optional heading; defaults to the chart's name.
+            """
+            name = title
+            if hasattr(superset, "chart_name"):
+                found = superset.chart_name(slice_id)
+                if found is None:
+                    return json.dumps({"ok": False,
+                                       "error": f"no chart with id {slice_id}"})
+                name = title or found
+            agent.on_embed({"slice_id": int(slice_id), "title": name,
+                            "url": f"/explore/?slice_id={int(slice_id)}"})
+            return json.dumps({"ok": True,
+                               "note": "chart embedded in the chat"})
+
+        @beta_tool
         def verify_dashboard(id_or_slug: str) -> str:
             """Verify a dashboard: every dataset's SQL is executed (LIMIT 5),
             and every chart's saved query is run when possible. Charts report
@@ -351,7 +422,7 @@ class AnalystAgent:
 
         return [list_databases, list_schemas, list_tables, describe_table,
                 run_sql, validate_spec, apply_spec, get_dashboard_spec,
-                verify_dashboard]
+                display_chart, embed_chart, verify_dashboard]
 
     # ------------------------------------------------------- deferred apply
 

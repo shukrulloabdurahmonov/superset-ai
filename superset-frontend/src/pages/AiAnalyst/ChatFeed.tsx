@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { t } from '@apache-superset/core/translation';
 import { styled } from '@apache-superset/core/theme';
 import { Button, Loading, SafeMarkdown } from '@superset-ui/core/components';
+import InlineChart from './InlineChart';
 import type { Msg } from './types';
 
 const Feed = styled.div`
@@ -87,6 +88,27 @@ const ApprovalCard = styled.div`
   .actions {
     display: flex;
     gap: ${({ theme }) => theme.sizeUnit * 2}px;
+  }
+`;
+
+const EmbedCard = styled.div`
+  align-self: stretch;
+  flex: none; /* fixed-height iframe must not shrink when the feed overflows */
+  border: 1px solid ${({ theme }) => theme.colorSplit};
+  border-radius: 8px;
+  overflow: hidden;
+  .head {
+    display: flex;
+    justify-content: space-between;
+    padding: ${({ theme }) => theme.sizeUnit}px
+      ${({ theme }) => theme.sizeUnit * 2}px;
+    border-bottom: 1px solid ${({ theme }) => theme.colorSplit};
+    font-weight: 600;
+  }
+  iframe {
+    width: 100%;
+    height: 420px;
+    border: none;
   }
 `;
 
@@ -201,6 +223,22 @@ export default function ChatFeed({
             </AssistantBlock>
           );
         if (m.kind === 'error') return <ErrorLine key={i}>{m.text}</ErrorLine>;
+        if (m.kind === 'chart') return <InlineChart key={i} chart={m} />;
+        if (m.kind === 'embed')
+          return (
+            <EmbedCard key={i} data-test="ai-analyst-embed">
+              <div className="head">
+                <span>{m.title || t('Chart')}</span>
+                <a href={m.url} target="_blank" rel="noreferrer">
+                  {t('Open in new tab')}
+                </a>
+              </div>
+              <iframe
+                src={`${m.url}${m.url.includes('?') ? '&' : '?'}standalone=1`}
+                title={m.title || t('Embedded chart')}
+              />
+            </EmbedCard>
+          );
         return (
           <ApprovalCard key={i} data-test="ai-analyst-approval">
             <strong>{t('Apply to Superset?')}</strong>

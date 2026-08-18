@@ -112,6 +112,12 @@ class InProcessSupersetService:
             for s in self._dashboard(id_or_slug).slices
         ]
 
+    def chart_name(self, slice_id: int) -> str | None:
+        from superset.daos.chart import ChartDAO
+
+        slc = ChartDAO.find_by_id(slice_id)
+        return slc.slice_name if slc is not None else None
+
     def verify_dashboard(self, id_or_slug: str) -> dict:
         """Dataset-level verification: run every (virtual) dataset's SQL with
         a LIMIT — this catches bad SQL/columns, the dominant failure class.
