@@ -70,6 +70,13 @@ def test_unsupported_viz_type_hard_errors(compiler):
         compiler.compile(spec)
 
 
+def test_cal_heatmap_requires_bounded_time_range(compiler):
+    spec = yaml.safe_load((FIXTURES / "active_users.yaml").read_text())
+    spec["charts"]["heatmap"]["time_range"] = "No filter"
+    with pytest.raises(core.SpecError, match="bounded"):
+        compiler.compile(spec)
+
+
 def test_missing_required_key_errors(compiler):
     with pytest.raises(core.SpecError, match="missing required key"):
         compiler.compile({"title": "x", "slug": "x", "datasets": {}, "charts": {}})

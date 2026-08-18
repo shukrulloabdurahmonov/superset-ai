@@ -358,6 +358,16 @@ class Compiler:
 
     def params_cal_heatmap(self, c, slug, ds):
         # Verbatim from a UI export of cal_heatmap.
+        # The calendar plugin needs BOTH time bounds at render time; an open
+        # range fails with "Please provide both time bounds (Since and Until)"
+        # (found in render verification 2026-08-18).
+        tr = c.get("time_range", "No filter")
+        if tr == "No filter" or " : " not in str(tr):
+            raise SpecError(
+                f"chart '{slug}': cal_heatmap requires an explicit bounded "
+                "time_range like '2026-01-01T00:00:00 : now' — open ranges "
+                "fail to render"
+            )
         p = self._matrixify()
         p.update({
             "granularity_sqla": c.get("time_column") or ds.get("main_dttm_col"),

@@ -48,7 +48,9 @@ charts:
     #  big_number_total: subtitle, header_font_size, timestamp: true (formats a
     #               MAX(dttm) metric as a date/time, time_format optional)
     #  area:        same as line, stacked
-    #  cal_heatmap: domain (month), subdomain (day), linear_color_scheme
+    #  cal_heatmap: domain (month), subdomain (day), linear_color_scheme.
+    #               REQUIRES a bounded time_range with both ends, e.g.
+    #               '2026-01-01T00:00:00 : now' — never 'No filter'
     #  pie:         groupby (str or list), donut, row_limit
     #  treemap:     groupby (list)
     #  pivot:       rows: [...], columns: [...], row/col_totals, row/col_subtotals
