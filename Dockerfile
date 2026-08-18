@@ -223,12 +223,15 @@ FROM python-common AS lean
 
 # Install Python dependencies using docker/pip-install.sh
 COPY requirements/base.txt requirements/
+# fork-local (AI Analyst)
+COPY requirements/ai-analyst.txt requirements/
 
 # Copy superset-core package needed for editable install in base.txt
 COPY superset-core superset-core
 
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    /app/docker/pip-install.sh --requires-build-essential -r requirements/base.txt
+    /app/docker/pip-install.sh --requires-build-essential -r requirements/base.txt \
+    && /app/docker/pip-install.sh -r requirements/ai-analyst.txt
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install -e .
@@ -256,7 +259,8 @@ COPY superset-extensions-cli superset-extensions-cli
 
 # Install Python dependencies using docker/pip-install.sh
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
-    /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt
+    /app/docker/pip-install.sh --requires-build-essential -r requirements/development.txt \
+    && /app/docker/pip-install.sh -r requirements/ai-analyst.txt
 # Install the superset package
 RUN --mount=type=cache,target=${SUPERSET_HOME}/.cache/uv \
     uv pip install -e .

@@ -1,0 +1,3 @@
+# fork-local (AI Analyst): runtime dependency of superset/ai_analyst/
+# kept as its own file so upstream's pip-compiled base.txt stays untouched
+anthropic>=0.116.0,<1

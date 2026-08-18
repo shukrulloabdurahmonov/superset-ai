@@ -1,0 +1,39 @@
+# fork-local (AI Analyst): fast CI for the fork's own code.
+# Upstream Superset workflows in this directory are mostly gated to the
+# apache/superset repository; disable any noisy leftovers in the repo's
+# Actions settings rather than editing them (keeps upstream merges clean).
+name: ai-analyst-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "superset/ai_analyst/**"
+      - "tests/ai_analyst/**"
+      - "superset-frontend/src/pages/AiAnalyst/**"
+      - ".github/workflows/ai-analyst-ci.yml"
+
+jobs:
+  compiler-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # the compiler is dependency-free by design (PyYAML only) — golden
+      # tests must run without installing Superset
+      - run: pip install pyyaml pytest
+      - run: python -m pytest tests/ai_analyst -q --noconftest
+
+  python-syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m compileall superset/ai_analyst

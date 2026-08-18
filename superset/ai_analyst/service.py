@@ -50,7 +50,11 @@ class InProcessSupersetService:
         return sorted(t[0] for t in names)
 
     def describe_table(self, database_id: int, schema: str, table: str) -> dict:
-        cols = self._database(database_id).get_columns(Table(table, schema))
+        database = self._database(database_id)
+        security_manager.raise_for_access(
+            database=database, table=Table(table, schema)
+        )
+        cols = database.get_columns(Table(table, schema))
         return {
             "name": table,
             "columns": [
