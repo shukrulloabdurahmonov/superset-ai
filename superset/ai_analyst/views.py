@@ -9,6 +9,7 @@ from superset.views.base import BaseSupersetView
 class AiAnalystView(BaseSupersetView):
     route_base = "/aianalyst"
     class_permission_name = "AiAnalyst"
+    default_view = "root"
 
     @expose("/")
     @has_access

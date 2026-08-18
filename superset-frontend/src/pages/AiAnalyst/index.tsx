@@ -6,7 +6,7 @@
  * backend keeps the agent session keyed by session_id.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { t } from '@superset-ui/core';
+import { t } from '@apache-superset/core/translation';
 import { styled } from '@apache-superset/core/theme';
 import {
   Button,

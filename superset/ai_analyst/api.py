@@ -96,9 +96,10 @@ class AiAnalystRestApi(BaseSupersetApi):
         )
 
         app = current_app._get_current_object()
-        # keep the caller's identity for RBAC inside the worker thread
+        # keep the caller's identity for RBAC inside the worker thread;
+        # g.user can be a request-bound LocalProxy — capture the real object
         from flask import g
-        user = g.user
+        user = getattr(g.user, "_get_current_object", lambda: g.user)()
 
         def run() -> None:
             with app.app_context():
