@@ -28,6 +28,13 @@ Key properties:
   changed objects arrive as new ones, unchanged keep their uuid.
 - Specs are persisted in the `ai_analyst_spec` table (models.py) so
   "modify my dashboard" round-trips: spec → edit → recompile → re-import.
+- Dashboards with NO stored spec are handled by the **reverse compiler**
+  (reverse.py): dashboard model → best-effort spec + explicit warnings about
+  anything lossy (unsupported viz types, physical-table datasets, missing
+  slug). Applying a recovered spec replaces the dashboard with what the spec
+  expresses.
+- Every apply is followed by dataset-level verification; failures are fed
+  back into the chat session so the agent proposes a repair.
 
 ## Dev setup
 

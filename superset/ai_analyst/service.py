@@ -100,6 +100,12 @@ class InProcessSupersetService:
             raise SupersetAPIError(f"dashboard '{id_or_slug}' not found")
         return dashboard
 
+    def reverse_dashboard_spec(self, id_or_slug: str) -> tuple[dict, list[str]]:
+        """Best-effort spec for a dashboard with no stored spec (lossy)."""
+        from superset.ai_analyst.reverse import reverse_spec
+
+        return reverse_spec(self._dashboard(id_or_slug))
+
     def dashboard_charts(self, id_or_slug: str) -> list[dict]:
         return [
             {"id": s.id, "slice_name": s.slice_name, "viz_type": s.viz_type}

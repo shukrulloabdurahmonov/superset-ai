@@ -152,9 +152,27 @@ class AiAnalystRestApi(BaseSupersetApi):
             logger.exception("ai_analyst apply failed")
             return self.response(500, message=str(e)[:500])
         models.upsert_spec(slug, database_id, spec_yaml)
+        # post-apply verification: run every dataset's SQL so failures are
+        # caught immediately; feed problems back into the session so the
+        # agent can repair on the next turn
+        verification = None
+        try:
+            verification = agent.superset.verify_dashboard(slug)
+            problems = [d for d in verification["datasets"]
+                        if d["status"] == "error"]
+            if problems:
+                agent.messages.append({
+                    "role": "user",
+                    "content": "[system note] Post-apply verification found "
+                               f"dataset errors on '{slug}': "
+                               f"{json.dumps(problems)}. Propose a fix.",
+                })
+        except Exception:  # noqa: BLE001 - verification is best-effort
+            logger.exception("ai_analyst post-apply verification failed")
         return self.response(200, result={
             "status": "applied", "slug": slug,
             "url": f"/superset/dashboard/{slug}/",
+            "verification": verification,
         })
 
     @expose("/session/<session_id>", methods=("GET",))

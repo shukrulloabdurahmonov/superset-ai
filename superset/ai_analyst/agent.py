@@ -39,6 +39,16 @@ tools instead of assuming anything about it.
 6. verify_dashboard — if charts error or come back empty, diagnose (often a
    SQL or column-type mistake in the spec), fix the spec, re-apply.
 
+# Modifying an existing dashboard
+1. get_dashboard_spec — returns the stored spec (AI-created dashboards) or a
+   reverse-engineered one with warnings (anything else). Read the warnings.
+2. Edit only what the user asked for; KEEP the slug unchanged so the apply
+   updates the dashboard in place (changed charts/datasets re-version
+   automatically; unchanged ones are untouched).
+3. validate_spec, then apply_spec as usual.
+Answer questions about a dashboard's content from its spec instead of
+guessing.
+
 # Rules
 - Your SQL is strictly read-only; the run_sql tool enforces this.
 - Never invent tables or columns: describe them first.
@@ -241,15 +251,31 @@ class AnalystAgent:
 
         @beta_tool
         def get_dashboard_spec(slug: str) -> str:
-            """Get the stored spec of a dashboard previously created here.
+            """Get the spec of an existing dashboard so it can be modified.
+            Returns the stored spec when the dashboard was created by AI
+            Analyst; otherwise reverse-engineers a best-effort spec from the
+            dashboard itself and lists warnings about anything lossy.
 
             Args:
-                slug: the dashboard slug.
+                slug: the dashboard slug or numeric id.
             """
             if slug in agent.specs:
                 return agent.specs[slug]
-            return json.dumps({"error": f"no stored spec for '{slug}' — it was "
-                               "not created in this session"})
+            if not hasattr(superset, "reverse_dashboard_spec"):
+                return json.dumps({"error": f"no stored spec for '{slug}', and "
+                                   "spec recovery is unavailable in this mode"})
+            try:
+                spec, warnings = superset.reverse_dashboard_spec(slug)
+            except SupersetAPIError as e:
+                return json.dumps({"error": str(e)})
+            return json.dumps({
+                "recovered_spec_yaml": yaml.dump(spec, sort_keys=False,
+                                                 allow_unicode=True),
+                "warnings": warnings,
+                "note": "This spec was reverse-engineered, not stored. "
+                        "Review the warnings: re-applying REPLACES the "
+                        "dashboard with exactly what the spec expresses.",
+            })
 
         @beta_tool
         def verify_dashboard(id_or_slug: str) -> str:
