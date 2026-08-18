@@ -536,6 +536,14 @@ CURRENCIES = ["USD", "EUR", "GBP", "INR", "MXN", "JPY", "CNY"]
 #   - stable: Production-ready, tested and supported
 #   - deprecated: Will be removed in a future major release
 
+# fork-local (AI Analyst) -----------------------------------------------
+# Chat agent that creates/modifies dashboards and answers data questions.
+# All implementation lives in superset/ai_analyst/.
+AI_ANALYST_ENABLED = False
+AI_ANALYST_MODEL = "claude-opus-5"
+AI_ANALYST_API_KEY: str | None = None  # falls back to env ANTHROPIC_API_KEY
+# ------------------------------------------------------------------------
+
 DEFAULT_FEATURE_FLAGS: dict[str, bool] = {
     # =================================================================
     # IN DEVELOPMENT

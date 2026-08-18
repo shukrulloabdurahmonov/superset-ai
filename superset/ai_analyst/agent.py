@@ -13,7 +13,6 @@ import json
 from typing import Callable
 
 import yaml
-from anthropic import Anthropic, beta_tool
 
 from .compiler import Compiler, DatabaseRef, SpecError, SUPPORTED_VIZ_TYPES
 from .spec_guide import SPEC_GUIDE
@@ -61,17 +60,35 @@ class AnalystAgent:
         approve: Callable[[str, str], bool] | None = None,
         on_text: Callable[[str], None] | None = None,
         on_tool: Callable[[str, dict], None] | None = None,
+        on_approval: Callable[[str, str, str], None] | None = None,
+        defer_apply: bool = False,
         namespace: str = "superset.ai-analyst",
     ):
+        """defer_apply=False (CLI): apply_spec calls `approve` synchronously.
+        defer_apply=True (web): apply_spec parks the compiled bundle in
+        self.pending and returns 'awaiting_approval'; the UI's Apply button
+        triggers the actual import out-of-band (see api.py)."""
+        # lazy import: Superset must boot even when the ai-analyst extra
+        # is not installed (pip install apache_superset[ai-analyst])
+        try:
+            from anthropic import Anthropic
+        except ImportError as e:
+            raise RuntimeError(
+                "AI Analyst requires the 'anthropic' package: "
+                "pip install 'apache_superset[ai-analyst]'"
+            ) from e
         self.superset = superset
         self.client = Anthropic(api_key=api_key) if api_key else Anthropic()
         self.model = model
         self.approve = approve or (lambda spec_yaml, summary: True)
         self.on_text = on_text or print
         self.on_tool = on_tool or (lambda name, args: None)
+        self.on_approval = on_approval or (lambda aid, summary, spec: None)
+        self.defer_apply = defer_apply
         self.namespace = namespace
         self.messages: list[dict] = []
-        self.specs: dict[str, str] = {}  # slug -> spec yaml (Phase 2: DB table)
+        self.specs: dict[str, str] = {}  # slug -> spec yaml (mirrored to DB in web mode)
+        self.pending: dict[str, dict] = {}  # approval_id -> {spec_yaml, database_id, summary}
         self._db_refs: dict[int, DatabaseRef] = {}
         self.tools = self._build_tools()
 
@@ -95,6 +112,8 @@ class AnalystAgent:
     # ---------------------------------------------------------------- tools
 
     def _build_tools(self):
+        from anthropic import beta_tool
+
         superset = self.superset
         agent = self
 
@@ -193,6 +212,22 @@ class AnalystAgent:
                 spec, (bundle, blob) = agent._compile(spec_yaml, database_id)
             except (SpecError, yaml.YAMLError) as e:
                 return json.dumps({"ok": False, "error": str(e)})
+            if agent.defer_apply:
+                import uuid as _uuid
+                aid = _uuid.uuid4().hex[:12]
+                agent.pending[aid] = {"spec_yaml": spec_yaml,
+                                      "database_id": database_id,
+                                      "summary": summary,
+                                      "slug": spec["slug"]}
+                agent.on_approval(aid, summary, spec_yaml)
+                return json.dumps({
+                    "ok": False, "status": "awaiting_approval",
+                    "approval_id": aid,
+                    "note": "The user has been shown an Apply button with your "
+                            "summary. The import runs only after they approve. "
+                            "End your turn now and tell the user what the "
+                            "dashboard will contain.",
+                })
             if not agent.approve(spec_yaml, summary):
                 return json.dumps({"ok": False,
                                    "error": "user declined the apply"})
@@ -235,6 +270,30 @@ class AnalystAgent:
         return [list_databases, list_schemas, list_tables, describe_table,
                 run_sql, validate_spec, apply_spec, get_dashboard_spec,
                 verify_dashboard]
+
+    # ------------------------------------------------------- deferred apply
+
+    def execute_pending(self, approval_id: str) -> str:
+        """Run a user-approved apply out-of-band; returns the dashboard slug."""
+        p = self.pending.pop(approval_id)
+        spec, (bundle, blob) = self._compile(p["spec_yaml"], p["database_id"])
+        self.superset.import_dashboard(blob, filename=f"{bundle}.zip")
+        self.specs[spec["slug"]] = p["spec_yaml"]
+        self.messages.append({
+            "role": "user",
+            "content": f"[system note] The user APPROVED apply {approval_id}: "
+                       f"dashboard '{spec['slug']}' was compiled and imported "
+                       "successfully. Do not apply it again.",
+        })
+        return spec["slug"]
+
+    def decline_pending(self, approval_id: str) -> None:
+        p = self.pending.pop(approval_id)
+        self.messages.append({
+            "role": "user",
+            "content": f"[system note] The user DECLINED apply {approval_id} "
+                       f"for dashboard '{p['slug']}'. Ask what to change.",
+        })
 
     # ----------------------------------------------------------------- chat
 

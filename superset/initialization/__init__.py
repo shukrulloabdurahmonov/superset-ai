@@ -238,6 +238,13 @@ class SupersetAppInitializer:  # pylint: disable=too-many-public-methods
         #
         # Setup API views
         #
+        # fork-local (AI Analyst): gated by config, all code in superset/ai_analyst/
+        if self.config.get("AI_ANALYST_ENABLED"):
+            from superset.ai_analyst import models as ai_analyst_models
+            from superset.ai_analyst.api import AiAnalystRestApi
+
+            ai_analyst_models.ensure_table()
+            appbuilder.add_api(AiAnalystRestApi)
         appbuilder.add_api(AnnotationRestApi)
         appbuilder.add_api(AnnotationLayerRestApi)
         appbuilder.add_api(AsyncEventsRestApi)

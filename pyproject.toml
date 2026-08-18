@@ -113,6 +113,7 @@ dependencies = [
 
 [project.optional-dependencies]
 
+ai-analyst = ["anthropic>=0.116.0"]  # fork-local: superset/ai_analyst/
 athena = ["pyathena[pandas]>=2, <3"]
 aurora-data-api = ["preset-sqlalchemy-aurora-data-api>=0.2.8,<0.3"]
 bigquery = [
