@@ -71,30 +71,56 @@ Talk to it like a colleague:
   exactly five upstream files carry small registration hooks, so merging new
   Superset releases stays mechanical.
 
-## Quickstart (development)
+## Quickstart — run it on any machine
+
+Prerequisites: git, Docker (allocate **≥ 8 GB memory** to it — the first
+build compiles the frontend inside Docker), and an Anthropic API key.
+Nothing else — no Node or Python on the host.
 
 ```bash
+# 1. Get the code
 git clone https://github.com/shukrulloabdurahmonov/superset-ai.git
 cd superset-ai
 
-# enable the feature (both files are gitignored)
-echo "AI_ANALYST_ENABLED = True" > docker/pythonpath_dev/superset_config_docker.py
-echo "ANTHROPIC_API_KEY=sk-ant-..." >> docker/.env-local
+# 2. Enable AI Analyst (this file is gitignored and auto-loaded)
+cat > docker/pythonpath_dev/superset_config_docker.py <<'EOF'
+AI_ANALYST_ENABLED = True
+AI_ANALYST_API_KEY = "sk-ant-...your key..."
+EOF
 
+# 3. Skip Superset's demo-data load (slow and failure-prone)
+sed -i.bak 's/^SUPERSET_LOAD_EXAMPLES=yes/SUPERSET_LOAD_EXAMPLES=no/' docker/.env
+
+# 4. Build and start (first build ~15-25 min; later starts take seconds)
+docker compose -f docker-compose-non-dev.yml up -d
+```
+
+Open http://localhost:8088 (admin/admin) → add your database under
+**Settings → Database Connections** → open **AI Analyst** in the menu.
+
+Notes:
+- For anything beyond a personal machine, change `admin/admin` and set a
+  real `SUPERSET_SECRET_KEY` in `docker/.env`.
+- Chats, specs, and data catalogs live in the `db_home` Docker volume —
+  they survive restarts and rebuilds.
+
+## Development
+
+For hacking on the fork itself (live-mounted source, single container +
+Postgres), use the light compose instead:
+
+```bash
 SUPERSET_LOAD_EXAMPLES=no docker compose \
   -f docker-compose-light.yml -f docker-compose-light-host.yml up -d
 docker exec superset-ai-superset-light-1 superset init   # sync permissions
 ```
 
-Open http://localhost:8088 (admin/admin) → **AI Analyst** in the menu.
+Caveat: this mounts the source tree over the image, so the frontend must be
+built once (`cd superset-frontend && npm ci && npm run build`) or the
+`superset-node-light` container must be left enabled to populate
+`superset/static/assets`.
 
-## Production
-
-```bash
-docker build --target lean -t superset-ai:0.1.0 .
-```
-
-Config (`superset_config.py`):
+## Production config reference
 
 ```python
 AI_ANALYST_ENABLED = True
@@ -102,6 +128,9 @@ AI_ANALYST_API_KEY = "sk-ant-..."     # or env ANTHROPIC_API_KEY
 AI_ANALYST_MODEL = "claude-opus-5"    # default; any Claude model id
 AI_ANALYST_CATALOG_REFRESH_HOURS = 2  # 0 disables the background refresher
 ```
+
+A standalone production image (no compose) is built with
+`docker build --target lean -t superset-ai:0.1.0 .`.
 
 Full details — architecture, REST API, security model, deployment limits,
 and the upstream-upgrade playbook — in
