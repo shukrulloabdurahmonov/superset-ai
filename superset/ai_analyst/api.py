@@ -8,8 +8,9 @@ GET  /api/v1/ai_analyst/chats       -> current user's saved chats
 GET  /api/v1/ai_analyst/chats/<id>  -> transcript + pending approvals
 DELETE /api/v1/ai_analyst/chats/<id>
 
-Chats are persisted per user in ai_analyst_chat after every turn and every
-apply, so they survive restarts and are resumable. The in-memory _SESSIONS
+Chats are persisted per user in ai_analyst_chat at the start and end of
+every turn and after every apply, so they survive restarts, are resumable,
+and show up in the chat list while a long first turn is still running. The in-memory _SESSIONS
 dict is only a cache of live agent objects (single-worker assumption; the
 DB copy is authoritative).
 """
@@ -34,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 _SESSIONS: dict[str, AnalystAgent] = {}
 _SESSIONS_LOCK = threading.Lock()
+# chat ids with a turn currently executing (same single-worker assumption
+# as _SESSIONS; only ever advisory — used to badge chats in the UI)
+_RUNNING: set[str] = set()
 
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 
@@ -131,6 +135,12 @@ class AiAnalystRestApi(BaseSupersetApi):
             **({"attachments": [a.get("name", "?") for a in attachments]}
                if attachments else {}),
         })
+        # persist before the (possibly long) turn runs so the chat is
+        # already listed in the sidebar and reachable from other windows;
+        # model_messages catches up at the end-of-turn persist
+        _persist(chat_id, user.id, agent)
+        with _SESSIONS_LOCK:
+            _RUNNING.add(chat_id)
 
         events: queue.Queue = queue.Queue()
 
@@ -192,6 +202,8 @@ class AiAnalystRestApi(BaseSupersetApi):
                     emit("error", {"message": str(e)[:500]})
                 finally:
                     _persist(chat_id, user.id, agent)
+                    with _SESSIONS_LOCK:
+                        _RUNNING.discard(chat_id)
                     events.put(None)
 
         threading.Thread(target=run, daemon=True).start()
@@ -277,7 +289,11 @@ class AiAnalystRestApi(BaseSupersetApi):
     @protect()
     @safe
     def chats(self) -> Response:
-        return self.response(200, result=models.list_chats(_current_user().id))
+        rows = models.list_chats(_current_user().id)
+        with _SESSIONS_LOCK:
+            for row in rows:
+                row["in_progress"] = row["id"] in _RUNNING
+        return self.response(200, result=rows)
 
     @expose("/chats/<chat_id>", methods=("GET",))
     @protect()
@@ -287,8 +303,11 @@ class AiAnalystRestApi(BaseSupersetApi):
         cid, agent = _get_session(chat_id, user.id)
         if agent is None:
             return self.response_404()
+        with _SESSIONS_LOCK:
+            in_progress = cid in _RUNNING
         return self.response(200, result={
             "chat_id": cid,
+            "in_progress": in_progress,
             "transcript": agent.ui,
             "pending": [
                 {"approval_id": a, "summary": p["summary"], "slug": p["slug"]}

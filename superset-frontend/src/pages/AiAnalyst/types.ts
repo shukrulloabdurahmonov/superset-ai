@@ -23,4 +23,5 @@ export type ChatSummary = {
   id: string;
   title: string;
   changed_on: string | null;
+  in_progress?: boolean;
 };

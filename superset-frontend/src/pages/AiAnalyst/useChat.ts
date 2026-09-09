@@ -19,12 +19,23 @@ async function jsonFetch(url: string, init: RequestInit = {}) {
   return res.json();
 }
 
+/** Keep the open chat in the URL so reloads and new windows can find it. */
+function setUrlChat(id: string | null) {
+  const url = id
+    ? `${window.location.pathname}?chat=${id}`
+    : window.location.pathname;
+  window.history.replaceState(null, '', url);
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [planMode, setPlanMode] = useState(true);
+  // a turn is running server-side for the open chat (started from another
+  // window or before a reload); poll until it completes
+  const [remoteBusy, setRemoteBusy] = useState(false);
   const [preview, setPreview] = useState<{ url: string; nonce: number } | null>(
     null,
   );
@@ -49,7 +60,7 @@ export function useChat() {
   const send = useCallback(
     async (text: string, attachments: Attachment[]) => {
       const message = text.trim();
-      if (!message || busy) return;
+      if (!message || busy || remoteBusy) return;
       push({
         kind: 'user',
         text: message,
@@ -94,7 +105,13 @@ export function useChat() {
             if (line.startsWith('event: ')) event = line.slice(7);
             if (!line.startsWith('data: ')) continue; // eslint-disable-line no-continue
             const data = JSON.parse(line.slice(6));
-            if (event === 'chat') setChatId(data.chat_id);
+            if (event === 'chat') {
+              setChatId(data.chat_id);
+              setUrlChat(data.chat_id);
+              // the chat is persisted before the turn runs, so the
+              // sidebar can show it immediately
+              loadChats();
+            }
             else if (event === 'text')
               push({ kind: 'assistant', text: data.text });
             else if (event === 'tool')
@@ -121,7 +138,7 @@ export function useChat() {
         loadChats();
       }
     },
-    [busy, planMode, push, loadChats],
+    [busy, remoteBusy, planMode, push, loadChats],
   );
 
   const resolveApproval = useCallback(
@@ -180,13 +197,46 @@ export function useChat() {
     const body = await jsonFetch(`/api/v1/ai_analyst/chats/${id}`);
     setChatId(body.result.chat_id);
     setMessages(body.result.transcript || []);
+    setRemoteBusy(!!body.result.in_progress);
     setPreview(null);
+    setUrlChat(body.result.chat_id);
   }, []);
+
+  // reopen the chat named in the URL (reload, second window)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('chat');
+    if (id)
+      openChat(id).catch(() => {
+        setUrlChat(null);
+      });
+  }, [openChat]);
+
+  // while the open chat has a server-side turn running, refresh its
+  // transcript until the turn completes
+  useEffect(() => {
+    if (!remoteBusy || !chatId) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const body = await jsonFetch(`/api/v1/ai_analyst/chats/${chatId}`);
+        if (chatIdRef.current !== body.result.chat_id) return;
+        setMessages(body.result.transcript || []);
+        if (!body.result.in_progress) {
+          setRemoteBusy(false);
+          loadChats();
+        }
+      } catch {
+        setRemoteBusy(false);
+      }
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [remoteBusy, chatId, loadChats]);
 
   const newChat = useCallback(() => {
     setChatId(null);
     setMessages([]);
+    setRemoteBusy(false);
     setPreview(null);
+    setUrlChat(null);
   }, []);
 
   const removeChat = useCallback(
@@ -211,7 +261,7 @@ export function useChat() {
 
   return {
     messages,
-    busy,
+    busy: busy || remoteBusy,
     chats,
     chatId,
     planMode,

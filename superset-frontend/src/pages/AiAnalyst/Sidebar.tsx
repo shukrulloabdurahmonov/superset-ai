@@ -43,6 +43,20 @@ const Item = styled.div<{ active: boolean }>`
     cursor: pointer;
     color: ${({ theme }) => theme.colorTextTertiary};
   }
+  .running {
+    flex: none;
+    color: ${({ theme }) => theme.colorPrimary};
+    animation: ai-analyst-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes ai-analyst-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
   &:hover .del {
     visibility: visible;
   }
@@ -72,6 +86,11 @@ export default function Sidebar({
           active={c.id === activeId}
           onClick={() => onOpen(c.id)}
         >
+          {c.in_progress && (
+            <span className="running" title={t('Still working…')}>
+              ●
+            </span>
+          )}
           <span className="title" title={c.title}>
             {c.title}
           </span>
