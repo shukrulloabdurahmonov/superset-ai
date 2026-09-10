@@ -70,6 +70,7 @@ export default function Composer({
   planMode,
   onPlanMode,
   onSend,
+  onStop,
   draft,
   onDraft,
 }: {
@@ -77,6 +78,7 @@ export default function Composer({
   planMode: boolean;
   onPlanMode: (v: boolean) => void;
   onSend: (text: string, attachments: Attachment[]) => void;
+  onStop: () => void;
   draft: string;
   onDraft: (v: string) => void;
 }) {
@@ -172,9 +174,17 @@ export default function Composer({
           }}
           data-test="ai-analyst-input"
         />
-        <Button buttonStyle="primary" disabled={busy} onClick={submit}>
-          {t('Send')}
-        </Button>
+        {busy ? (
+          <Tooltip title={t('Interrupt the running task')}>
+            <Button buttonStyle="danger" onClick={onStop}>
+              {t('Stop')}
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button buttonStyle="primary" onClick={submit}>
+            {t('Send')}
+          </Button>
+        )}
       </Row>
       <Bar>
         <Switch

@@ -6,6 +6,7 @@ POST /api/v1/ai_analyst/chat        {message, chat_id?, plan_mode?, attachments?
 POST /api/v1/ai_analyst/apply       {chat_id, approval_id, approve} -> import
 GET  /api/v1/ai_analyst/chats       -> current user's saved chats
 GET  /api/v1/ai_analyst/chats/<id>  -> transcript + pending approvals
+POST /api/v1/ai_analyst/chats/<id>/stop -> interrupt the running turn
 DELETE /api/v1/ai_analyst/chats/<id>
 
 Chats are persisted per user in ai_analyst_chat at the start and end of
@@ -38,6 +39,9 @@ _SESSIONS_LOCK = threading.Lock()
 # chat ids with a turn currently executing (same single-worker assumption
 # as _SESSIONS; only ever advisory — used to badge chats in the UI)
 _RUNNING: set[str] = set()
+# live turns by chat id: {"agent", "user_id", "events"} — lets the stop
+# endpoint interrupt a turn and close its SSE stream
+_TURNS: dict[str, dict] = {}
 
 MAX_REQUEST_BYTES = 20 * 1024 * 1024
 
@@ -89,7 +93,8 @@ def _get_session(chat_id: str | None, user_id: int):
         return cid, agent
 
 
-def _persist(chat_id: str, user_id: int, agent: AnalystAgent) -> None:
+def _persist(chat_id: str, user_id: int, agent: AnalystAgent,
+             messages: list[dict] | None = None) -> None:
     title = "New chat"
     for m in agent.ui:
         if m.get("kind") == "user":
@@ -97,10 +102,32 @@ def _persist(chat_id: str, user_id: int, agent: AnalystAgent) -> None:
             break
     try:
         models.save_chat(chat_id, user_id, title,
-                         json.dumps(agent.export_messages(), default=str),
+                         json.dumps(messages if messages is not None
+                                    else agent.export_messages(),
+                                    default=str),
                          json.dumps(agent.ui, default=str))
     except Exception:  # noqa: BLE001 - persistence must never kill a turn
         logger.exception("ai_analyst: failed to persist chat %s", chat_id)
+
+
+def _stopped_messages(agent: AnalystAgent) -> list[dict]:
+    """Message history safe to resume from after an interrupted turn: any
+    trailing assistant tool_use blocks get a synthetic tool_result, since
+    the API rejects histories with unanswered tool calls."""
+    msgs = agent.export_messages()
+    if msgs and msgs[-1].get("role") == "assistant":
+        content = msgs[-1].get("content")
+        ids = [
+            b.get("id") for b in content
+            if isinstance(b, dict) and b.get("type") == "tool_use"
+        ] if isinstance(content, list) else []
+        if ids:
+            msgs.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": i,
+                 "content": "(interrupted: the user stopped this turn)"}
+                for i in ids
+            ]})
+    return msgs
 
 
 class AiAnalystRestApi(BaseSupersetApi):
@@ -139,10 +166,12 @@ class AiAnalystRestApi(BaseSupersetApi):
         # already listed in the sidebar and reachable from other windows;
         # model_messages catches up at the end-of-turn persist
         _persist(chat_id, user.id, agent)
-        with _SESSIONS_LOCK:
-            _RUNNING.add(chat_id)
 
         events: queue.Queue = queue.Queue()
+        with _SESSIONS_LOCK:
+            _RUNNING.add(chat_id)
+            _TURNS[chat_id] = {"agent": agent, "user_id": user.id,
+                               "events": events}
 
         def emit(event: str, payload: dict) -> None:
             events.put((event, payload))
@@ -201,9 +230,16 @@ class AiAnalystRestApi(BaseSupersetApi):
                     agent.ui.append({"kind": "error", "text": str(e)[:500]})
                     emit("error", {"message": str(e)[:500]})
                 finally:
-                    _persist(chat_id, user.id, agent)
+                    # a stopped turn was already persisted (sanitized) and
+                    # unregistered by the stop endpoint; a newer turn may
+                    # own the registry entries by the time we get here
                     with _SESSIONS_LOCK:
-                        _RUNNING.discard(chat_id)
+                        if _TURNS.get(chat_id, {}).get("events") is events:
+                            _TURNS.pop(chat_id, None)
+                        if not agent.stopped:
+                            _RUNNING.discard(chat_id)
+                    if not agent.stopped:
+                        _persist(chat_id, user.id, agent)
                     events.put(None)
 
         threading.Thread(target=run, daemon=True).start()
@@ -284,6 +320,36 @@ class AiAnalystRestApi(BaseSupersetApi):
             "status": "applied", "slug": slug, "url": url,
             "verification": verification,
         })
+
+    @expose("/chats/<chat_id>/stop", methods=("POST",))
+    @protect()
+    @safe
+    def stop_chat(self, chat_id: str) -> Response:
+        """Interrupt the running turn of a chat. The stop is immediate for
+        the user: the chat is persisted as-is (with a sanitized message
+        history), the SSE stream is closed, and the session is dropped so
+        the next turn starts from the saved state. The turn's thread exits
+        at its next step; a tool call already executing runs to completion
+        in the background but its result is discarded."""
+        user = _current_user()
+        with _SESSIONS_LOCK:
+            turn = _TURNS.get(chat_id)
+            if turn is None or turn["user_id"] != user.id:
+                turn = None
+            else:
+                _TURNS.pop(chat_id, None)
+                _RUNNING.discard(chat_id)
+                _SESSIONS.pop(chat_id, None)
+        if turn is None:
+            return self.response_404()
+        agent = turn["agent"]
+        agent.stopped = True
+        agent.cancel_event.set()
+        agent.ui.append({"kind": "error", "text": "Stopped by user."})
+        _persist(chat_id, user.id, agent, messages=_stopped_messages(agent))
+        turn["events"].put(("error", {"message": "Stopped by user."}))
+        turn["events"].put(None)
+        return self.response(200, result={"status": "stopped"})
 
     @expose("/chats", methods=("GET",))
     @protect()

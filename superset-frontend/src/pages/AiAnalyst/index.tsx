@@ -63,6 +63,7 @@ export default function AiAnalyst() {
     openPreview,
     closePreview,
     send,
+    stop,
     resolveApproval,
     openChat,
     newChat,
@@ -109,6 +110,7 @@ export default function AiAnalyst() {
           planMode={planMode}
           onPlanMode={setPlanMode}
           onSend={send}
+          onStop={stop}
           draft={draft}
           onDraft={setDraft}
         />

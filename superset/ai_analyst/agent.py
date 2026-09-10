@@ -10,6 +10,7 @@ Architecture (per Anthropic's SDK Tool Runner):
 from __future__ import annotations
 
 import json
+import threading
 from typing import Callable
 
 import yaml
@@ -165,6 +166,11 @@ class AnalystAgent:
         self.on_plan = lambda plan_markdown: None  # set by the web API
         self.defer_apply = defer_apply
         self.namespace = namespace
+        # set to interrupt a running turn between steps; the web API also
+        # detaches the session so the stop is instant for the user even
+        # while a slow tool call finishes in the background
+        self.cancel_event = threading.Event()
+        self.stopped = False  # turn was stopped; skip the end-of-turn persist
         self.messages: list[dict] = []
         self.specs: dict[str, str] = {}  # slug -> spec yaml (mirrored to DB in web mode)
         self.pending: dict[str, dict] = {}  # approval_id -> {spec_yaml, database_id, summary}
@@ -568,8 +574,11 @@ class AnalystAgent:
             tools=self.tools,
             messages=self.messages,
         )
+        self.cancel_event.clear()
         final_text = ""
         for message in runner:
+            if self.cancel_event.is_set():
+                return "(stopped by user)"
             for block in message.content:
                 if block.type == "text":
                     final_text = block.text
@@ -580,6 +589,10 @@ class AnalystAgent:
             self.messages.append(
                 {"role": "assistant", "content": message.content}
             )
+            if self.cancel_event.is_set():
+                # skip executing the requested tools; the stop handler has
+                # already persisted a sanitized history for this chat
+                return "(stopped by user)"
             tool_response = runner.generate_tool_call_response()
             if tool_response is not None:
                 self.messages.append(tool_response)

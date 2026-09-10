@@ -193,6 +193,30 @@ export function useChat() {
     [],
   );
 
+  const stop = useCallback(async () => {
+    const id = chatIdRef.current;
+    if (!id) return;
+    try {
+      const token = await csrfToken();
+      await fetch(`/api/v1/ai_analyst/chats/${id}/stop`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRFToken': token },
+      });
+      // a turn streaming in THIS window ends via its closing SSE stream;
+      // one started elsewhere needs a transcript refresh here
+      if (!busy) {
+        const body = await jsonFetch(`/api/v1/ai_analyst/chats/${id}`);
+        if (chatIdRef.current === body.result.chat_id)
+          setMessages(body.result.transcript || []);
+      }
+    } catch {
+      // best-effort; the turn may have just finished on its own
+    }
+    setRemoteBusy(false);
+    loadChats();
+  }, [busy, loadChats]);
+
   const openChat = useCallback(async (id: string) => {
     const body = await jsonFetch(`/api/v1/ai_analyst/chats/${id}`);
     setChatId(body.result.chat_id);
@@ -270,6 +294,7 @@ export function useChat() {
     openPreview,
     closePreview,
     send,
+    stop,
     resolveApproval,
     openChat,
     newChat,
