@@ -146,6 +146,14 @@ export function useChat() {
       let state: ApprovalState = approve ? 'applied' : 'declined';
       let url: string | undefined;
       let detail: string | undefined;
+      // the import can take a while; show progress on the card right away
+      setMessages(prev =>
+        prev.map(m =>
+          m.kind === 'approval' && m.approvalId === approvalId
+            ? { ...m, state: 'applying' }
+            : m,
+        ),
+      );
       try {
         const token = await csrfToken();
         const res = await fetch('/api/v1/ai_analyst/apply', {

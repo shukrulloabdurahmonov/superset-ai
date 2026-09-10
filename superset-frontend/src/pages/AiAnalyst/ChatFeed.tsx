@@ -86,6 +86,7 @@ const ApprovalCard = styled.div`
   }
   .actions {
     display: flex;
+    align-items: center;
     gap: ${({ theme }) => theme.sizeUnit * 2}px;
   }
 `;
@@ -294,6 +295,12 @@ export default function ChatFeed({
                 </Button>
               </div>
             )}
+            {m.state === 'applying' && (
+              <div className="actions">
+                <Loading position="inline" />
+                <span>{t('Applying…')}</span>
+              </div>
+            )}
             {m.state === 'applied' && (
               <div className="actions">
                 <span>✅ {t('Applied.')}</span>
@@ -321,7 +328,11 @@ export default function ChatFeed({
           </ApprovalCard>
         );
       })}
-      {busy && <Loading position="inline-centered" />}
+      {busy && (
+        <AssistantBlock>
+          <Loading position="inline" />
+        </AssistantBlock>
+      )}
     </Feed>
   );
 }

@@ -1,4 +1,9 @@
-export type ApprovalState = 'pending' | 'applied' | 'declined' | 'failed';
+export type ApprovalState =
+  | 'pending'
+  | 'applying'
+  | 'applied'
+  | 'declined'
+  | 'failed';
 
 export type Msg =
   | { kind: 'user'; text: string; attachments?: string[] }
