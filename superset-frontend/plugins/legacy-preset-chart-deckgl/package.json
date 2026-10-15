@@ -48,7 +48,7 @@
     "handlebars": "^4.7.8",
     "lodash": "^4.17.23",
     "mousetrap": "^1.6.5",
-    "ngeohash": "^0.6.3",
+    "ngeohash": "^0.6.4",
     "prop-types": "^15.8.1",
     "underscore": "^1.13.8",
     "urijs": "^1.19.11",
